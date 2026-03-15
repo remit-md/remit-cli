@@ -1,3 +1,4 @@
+pub mod a2a;
 pub mod balance;
 pub mod bounty;
 pub mod config_cmd;

@@ -80,6 +80,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::config_cmd::ConfigAction,
     },
+    /// A2A / AP2 operations (discover, pay, card)
+    A2A {
+        #[command(subcommand)]
+        action: commands::a2a::A2AAction,
+    },
     /// Generate shell completion scripts
     Completions(completions::CompletionsArgs),
 }
@@ -109,6 +114,7 @@ async fn main() -> Result<()> {
         Commands::Faucet(args) => commands::faucet::run(args, ctx).await,
         Commands::Init(args) => commands::init::run(args, ctx).await,
         Commands::Config { action } => commands::config_cmd::run(action, ctx).await,
+        Commands::A2A { action } => commands::a2a::run(action, ctx).await,
         Commands::Completions(args) => {
             completions::run(args, &mut Cli::command());
             Ok(())
