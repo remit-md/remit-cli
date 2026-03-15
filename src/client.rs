@@ -1,26 +1,27 @@
+// Client and types used by command handlers (tasks 0.4+).
 #![allow(dead_code)]
 
-use anyhow::{anyhow, Result};
-use reqwest::{Client, RequestBuilder, Response};
+/// Authenticated HTTP client for the Remit API.
+///
+/// Every request is signed via EIP-712 auth headers (auth module).
+/// All endpoints return typed Rust structs. Amounts are USDC strings.
+use anyhow::{anyhow, Context, Result};
+use reqwest::{Client, Method, RequestBuilder};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::auth::{build_auth_headers, ChainConfig};
+
+// ── Base URLs ─────────────────────────────────────────────────────────────────
 
 pub const MAINNET_API: &str = "https://remit.md/api/v0";
 pub const TESTNET_API: &str = "https://testnet.remit.md/api/v0";
 
-/// Build the API base URL from the testnet flag.
-pub fn api_base(testnet: bool) -> &'static str {
-    if testnet {
-        TESTNET_API
-    } else {
-        MAINNET_API
-    }
-}
+// ── Client ────────────────────────────────────────────────────────────────────
 
-/// HTTP client wrapper for the Remit API.
 pub struct RemitClient {
-    pub http: Client,
-    pub base: String,
-    pub address: Option<String>,
+    http: Client,
+    base: &'static str,
+    chain: ChainConfig,
 }
 
 impl RemitClient {
@@ -31,91 +32,528 @@ impl RemitClient {
             .expect("failed to build HTTP client");
         Self {
             http,
-            base: api_base(testnet).to_string(),
-            address: None,
+            base: if testnet { TESTNET_API } else { MAINNET_API },
+            chain: ChainConfig::for_network(testnet),
         }
     }
 
-    pub fn with_address(mut self, address: String) -> Self {
-        self.address = Some(address);
-        self
-    }
-
-    pub fn url(&self, path: &str) -> String {
+    fn url(&self, path: &str) -> String {
         format!("{}{}", self.base, path)
     }
 
-    /// Execute a request, returning a typed response or a user-friendly error.
-    pub async fn execute<T: DeserializeOwned>(&self, req: RequestBuilder) -> Result<T> {
-        let resp: Response = req
+    /// Execute an authenticated request, mapping HTTP errors to friendly messages.
+    async fn request<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<T> {
+        let auth = build_auth_headers(
+            method.as_str(),
+            path,
+            self.chain.chain_id,
+            &self.chain.router,
+        )
+        .context("failed to build auth headers")?;
+
+        let mut req: RequestBuilder = self.http.request(method, self.url(path));
+        for (k, v) in &auth {
+            req = req.header(k, v);
+        }
+        if let Some(body) = body {
+            req = req.json(&body);
+        }
+
+        let resp = req
             .send()
             .await
             .map_err(|e| anyhow!("Network error: {e}"))?;
-
         let status = resp.status();
+
         if status.is_success() {
             resp.json::<T>()
                 .await
-                .map_err(|e| anyhow!("Failed to parse response: {e}"))
+                .map_err(|e| anyhow!("Failed to parse server response: {e}"))
         } else {
-            let body = resp.text().await.unwrap_or_default();
-            // Try to parse as JSON error object
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
-                let msg = v["error"].as_str().unwrap_or(&body);
-                Err(anyhow!("API error {status}: {msg}"))
-            } else {
-                Err(anyhow!("API error {status}: {body}"))
-            }
+            let body_text = resp.text().await.unwrap_or_default();
+            let msg = serde_json::from_str::<serde_json::Value>(&body_text)
+                .ok()
+                .and_then(|v| {
+                    v["message"]
+                        .as_str()
+                        .or(v["error"].as_str())
+                        .map(str::to_owned)
+                })
+                .unwrap_or(body_text);
+            Err(anyhow!("{status}: {msg}"))
         }
+    }
+
+    async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        self.request(Method::GET, path, None).await
+    }
+
+    async fn post<T: DeserializeOwned>(&self, path: &str, body: serde_json::Value) -> Result<T> {
+        self.request(Method::POST, path, Some(body)).await
+    }
+
+    // ── Public: status ────────────────────────────────────────────────────────
+
+    pub async fn status(&self, wallet: &str) -> Result<WalletStatus> {
+        self.get(&format!("/status/{wallet}")).await
+    }
+
+    // ── Public: health ────────────────────────────────────────────────────────
+
+    pub async fn health(&self) -> Result<HealthResponse> {
+        self.get("/health").await
+    }
+
+    // ── Public: events ───────────────────────────────────────────────────────
+
+    pub async fn events(&self, since: Option<i64>, limit: Option<u32>) -> Result<Vec<EventRow>> {
+        let mut path = "/events?".to_string();
+        if let Some(s) = since {
+            path.push_str(&format!("since={s}&"));
+        }
+        if let Some(l) = limit {
+            path.push_str(&format!("limit={l}&"));
+        }
+        self.get(&path).await
+    }
+
+    // ── Payment: direct ───────────────────────────────────────────────────────
+
+    pub async fn pay_direct(
+        &self,
+        to: &str,
+        amount: &str,
+        memo: Option<&str>,
+    ) -> Result<TxResponse> {
+        use rand::Rng;
+        let nonce = hex::encode(rand::thread_rng().gen::<[u8; 16]>());
+        self.post(
+            "/payments/direct",
+            serde_json::json!({
+                "to": to,
+                "amount": amount,
+                "task": memo.unwrap_or(""),
+                "chain": chain_name(self.chain.chain_id),
+                "nonce": nonce,
+                "signature": "0x",
+            }),
+        )
+        .await
+    }
+
+    // ── Tabs ─────────────────────────────────────────────────────────────────
+
+    pub async fn tab_open(
+        &self,
+        provider: &str,
+        limit: &str,
+        per_unit: &str,
+        expiry_secs: i64,
+    ) -> Result<Tab> {
+        self.post(
+            "/tabs",
+            serde_json::json!({
+                "chain": chain_name(self.chain.chain_id),
+                "provider": provider,
+                "limit_amount": limit,
+                "per_unit": per_unit,
+                "expiry": expiry_secs,
+            }),
+        )
+        .await
+    }
+
+    pub async fn tab_charge(
+        &self,
+        tab_id: &str,
+        amount: &str,
+        cumulative: &str,
+        call_count: i32,
+    ) -> Result<TabCharge> {
+        self.post(
+            &format!("/tabs/{tab_id}/charge"),
+            serde_json::json!({
+                "amount": amount,
+                "cumulative": cumulative,
+                "call_count": call_count,
+                "provider_sig": "0x",
+            }),
+        )
+        .await
+    }
+
+    pub async fn tab_close(&self, tab_id: &str, final_amount: &str) -> Result<Tab> {
+        self.post(
+            &format!("/tabs/{tab_id}/close"),
+            serde_json::json!({
+                "final_amount": final_amount,
+                "provider_sig": "0x",
+            }),
+        )
+        .await
+    }
+
+    pub async fn tab_get(&self, tab_id: &str) -> Result<Tab> {
+        self.get(&format!("/tabs/{tab_id}")).await
+    }
+
+    pub async fn tabs_list(&self, limit: u32) -> Result<PagedResponse<Tab>> {
+        self.get(&format!("/tabs?limit={limit}")).await
+    }
+
+    // ── Streams ───────────────────────────────────────────────────────────────
+
+    pub async fn stream_open(
+        &self,
+        payee: &str,
+        rate_per_second: &str,
+        max_total: &str,
+    ) -> Result<Stream> {
+        self.post(
+            "/streams",
+            serde_json::json!({
+                "chain": chain_name(self.chain.chain_id),
+                "payee": payee,
+                "rate_per_second": rate_per_second,
+                "max_total": max_total,
+            }),
+        )
+        .await
+    }
+
+    pub async fn stream_close(&self, stream_id: &str) -> Result<Stream> {
+        self.post(
+            &format!("/streams/{stream_id}/close"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn streams_list(&self, limit: u32) -> Result<PagedResponse<Stream>> {
+        self.get(&format!("/streams?limit={limit}")).await
+    }
+
+    // ── Escrows ───────────────────────────────────────────────────────────────
+
+    pub async fn escrow_create(
+        &self,
+        payee: &str,
+        amount: &str,
+        timeout_secs: Option<i64>,
+    ) -> Result<Escrow> {
+        use rand::Rng;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = hex::encode(rand::thread_rng().gen::<[u8; 16]>());
+        let invoice_id = format!("cli-{}", hex::encode(rand::thread_rng().gen::<[u8; 8]>()));
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let expiry = timeout_secs
+            .map(|s| now as i64 + s)
+            .unwrap_or(now as i64 + 86400);
+
+        // Create invoice first
+        self.post::<serde_json::Value>(
+            "/invoices",
+            serde_json::json!({
+                "id": invoice_id,
+                "chain": chain_name(self.chain.chain_id),
+                "to_agent": payee,
+                "amount": amount,
+                "type": "escrow",
+                "task": "",
+                "nonce": nonce,
+                "signature": "0x",
+                "escrow_timeout": expiry,
+            }),
+        )
+        .await
+        .context("create invoice")?;
+
+        // Fund escrow
+        self.post("/escrows", serde_json::json!({ "invoice_id": invoice_id }))
+            .await
+    }
+
+    pub async fn escrow_release(&self, escrow_id: &str) -> Result<Escrow> {
+        self.post(
+            &format!("/escrows/{escrow_id}/release"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn escrow_cancel(&self, escrow_id: &str) -> Result<Escrow> {
+        self.post(
+            &format!("/escrows/{escrow_id}/cancel"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn escrow_claim_start(&self, escrow_id: &str) -> Result<Escrow> {
+        self.post(
+            &format!("/escrows/{escrow_id}/claim-start"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn escrows_list(&self, limit: u32) -> Result<PagedResponse<Escrow>> {
+        self.get(&format!("/escrows?limit={limit}")).await
+    }
+
+    // ── Bounties ──────────────────────────────────────────────────────────────
+
+    pub async fn bounty_post(
+        &self,
+        amount: &str,
+        description: &str,
+        expiry_secs: i64,
+    ) -> Result<Bounty> {
+        self.post(
+            "/bounties",
+            serde_json::json!({
+                "chain": chain_name(self.chain.chain_id),
+                "amount": amount,
+                "task_description": description,
+                "deadline": expiry_secs,
+            }),
+        )
+        .await
+    }
+
+    pub async fn bounty_submit(&self, bounty_id: &str, proof: &str) -> Result<BountySubmission> {
+        self.post(
+            &format!("/bounties/{bounty_id}/submit"),
+            serde_json::json!({
+                "evidence_hash": proof,
+            }),
+        )
+        .await
+    }
+
+    pub async fn bounty_award(&self, bounty_id: &str, submission_id: i64) -> Result<Bounty> {
+        self.post(
+            &format!("/bounties/{bounty_id}/award"),
+            serde_json::json!({ "submission_id": submission_id }),
+        )
+        .await
+    }
+
+    pub async fn bounties_list(&self, limit: u32) -> Result<PagedResponse<Bounty>> {
+        self.get(&format!("/bounties?limit={limit}")).await
+    }
+
+    // ── Deposits ──────────────────────────────────────────────────────────────
+
+    pub async fn deposit_create(
+        &self,
+        provider: &str,
+        amount: &str,
+        expiry_secs: i64,
+    ) -> Result<Deposit> {
+        self.post(
+            "/deposits",
+            serde_json::json!({
+                "chain": chain_name(self.chain.chain_id),
+                "provider": provider,
+                "amount": amount,
+                "expiry": expiry_secs,
+            }),
+        )
+        .await
+    }
+
+    // ── Links ─────────────────────────────────────────────────────────────────
+
+    pub async fn link_fund(&self) -> Result<CreateLinkResponse> {
+        self.post("/links/fund", serde_json::json!({})).await
+    }
+
+    pub async fn link_withdraw(&self) -> Result<CreateLinkResponse> {
+        self.post("/links/withdraw", serde_json::json!({})).await
+    }
+
+    // ── Faucet (testnet only) ─────────────────────────────────────────────────
+
+    pub async fn faucet(&self, wallet: &str, amount: Option<&str>) -> Result<FaucetResponse> {
+        let mut body = serde_json::json!({ "wallet": wallet });
+        if let Some(amt) = amount {
+            body["amount"] = serde_json::Value::String(amt.to_string());
+        }
+        self.post("/faucet", body).await
     }
 }
 
-// ── Shared response types ─────────────────────────────────────────────────────
+// ── Helper ────────────────────────────────────────────────────────────────────
+
+fn chain_name(chain_id: u64) -> &'static str {
+    match chain_id {
+        8453 => "base",
+        84532 => "base-sepolia",
+        31337 => "localhost",
+        _ => "base-sepolia",
+    }
+}
+
+// ── Response types ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct StatusResponse {
-    pub address: String,
-    pub balance: Option<String>,
-    pub network: Option<String>,
+pub struct WalletStatus {
+    pub wallet: String,
+    pub balance: String,
+    pub monthly_volume: Option<serde_json::Value>,
+    pub tier: Option<String>,
+    pub fee_rate_bps: Option<u32>,
+    pub active_escrows: Option<i64>,
+    pub active_tabs: Option<i64>,
+    pub active_streams: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HealthResponse {
+    pub status: String,
+    pub version: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TxResponse {
+    pub invoice_id: Option<String>,
     pub tx_hash: Option<String>,
     pub status: String,
-    pub message: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct BalanceResponse {
-    pub address: String,
-    pub usdc: String,
-    pub network: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct HistoryEntry {
+pub struct Tab {
     pub id: String,
-    pub kind: String,
-    pub amount: Option<String>,
+    pub chain: Option<String>,
+    pub payer: Option<String>,
+    pub provider: Option<String>,
+    pub limit_amount: Option<serde_json::Value>,
+    pub per_unit: Option<serde_json::Value>,
+    pub total_charged: Option<serde_json::Value>,
+    pub call_count: Option<i32>,
     pub status: String,
-    pub created_at: String,
-    pub counterparty: Option<String>,
+    pub expiry: Option<String>,
+    pub tx_hash: Option<String>,
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct HistoryResponse {
-    pub transactions: Vec<HistoryEntry>,
+pub struct TabCharge {
+    pub id: Option<i64>,
+    pub tab_id: String,
+    pub amount: serde_json::Value,
+    pub cumulative: serde_json::Value,
+    pub call_count: Option<i32>,
+    pub charged_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct LinkResponse {
+pub struct Stream {
+    pub id: String,
+    pub chain: Option<String>,
+    pub payer: Option<String>,
+    pub payee: Option<String>,
+    pub rate_per_second: Option<serde_json::Value>,
+    pub max_total: Option<serde_json::Value>,
+    pub withdrawn: Option<serde_json::Value>,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub closed_at: Option<String>,
+    pub tx_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Escrow {
+    pub invoice_id: String,
+    pub chain: Option<String>,
+    pub tx_hash: Option<String>,
+    pub status: String,
+    pub payer: Option<String>,
+    pub payee: Option<String>,
+    pub amount: Option<serde_json::Value>,
+    pub fee: Option<serde_json::Value>,
+    pub timeout: Option<String>,
+    pub claim_started: Option<bool>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Bounty {
+    pub id: String,
+    pub chain: Option<String>,
+    pub poster: Option<String>,
+    pub amount: Option<serde_json::Value>,
+    pub task_description: Option<String>,
+    pub deadline: Option<String>,
+    pub status: String,
+    pub winner: Option<String>,
+    pub tx_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BountySubmission {
+    pub id: Option<i64>,
+    pub bounty_id: String,
+    pub submitter: Option<String>,
+    pub evidence_hash: String,
+    pub status: String,
+    pub submitted_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Deposit {
+    pub id: String,
+    pub chain: Option<String>,
+    pub depositor: Option<String>,
+    pub provider: Option<String>,
+    pub amount: Option<serde_json::Value>,
+    pub expiry: Option<String>,
+    pub status: String,
+    pub tx_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateLinkResponse {
     pub url: String,
+    pub token: Option<String>,
+    pub expires_at: Option<String>,
+    pub wallet_address: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FaucetResponse {
     pub tx_hash: Option<String>,
-    pub amount: String,
-    pub message: String,
+    pub amount: serde_json::Value,
+    pub recipient: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EventRow {
+    pub id: Option<i64>,
+    pub wallet: Option<String>,
+    pub event_type: String,
+    pub event_id: Option<String>,
+    pub invoice_id: Option<String>,
+    pub chain: Option<String>,
+    pub data: Option<serde_json::Value>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PagedResponse<T> {
+    pub data: Vec<T>,
+    pub total: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
