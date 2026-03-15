@@ -6,12 +6,12 @@ pub mod deposit;
 pub mod escrow;
 pub mod faucet;
 pub mod fund;
-pub mod history;
 pub mod init;
 pub mod pay;
 pub mod status;
 pub mod stream;
 pub mod tab;
+pub mod webhook;
 pub mod withdraw;
 
 /// Per-invocation context passed to every command handler.

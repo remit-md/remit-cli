@@ -40,8 +40,6 @@ enum Commands {
     Status(commands::status::StatusArgs),
     /// Show your USDC balance
     Balance(commands::balance::BalanceArgs),
-    /// List recent transactions
-    History(commands::history::HistoryArgs),
     /// Tab operations (open, charge, close)
     Tab {
         #[command(subcommand)]
@@ -85,6 +83,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::a2a::A2AAction,
     },
+    /// Webhook operations (create, list, delete)
+    Webhook {
+        #[command(subcommand)]
+        action: commands::webhook::WebhookAction,
+    },
     /// Generate shell completion scripts
     Completions(completions::CompletionsArgs),
 }
@@ -103,7 +106,6 @@ async fn main() -> Result<()> {
         Commands::Pay(args) => commands::pay::run(args, ctx).await,
         Commands::Status(args) => commands::status::run(args, ctx).await,
         Commands::Balance(args) => commands::balance::run(args, ctx).await,
-        Commands::History(args) => commands::history::run(args, ctx).await,
         Commands::Tab { action } => commands::tab::run(action, ctx).await,
         Commands::Stream { action } => commands::stream::run(action, ctx).await,
         Commands::Escrow { action } => commands::escrow::run(action, ctx).await,
@@ -115,6 +117,7 @@ async fn main() -> Result<()> {
         Commands::Init(args) => commands::init::run(args, ctx).await,
         Commands::Config { action } => commands::config_cmd::run(action, ctx).await,
         Commands::A2A { action } => commands::a2a::run(action, ctx).await,
+        Commands::Webhook { action } => commands::webhook::run(action, ctx).await,
         Commands::Completions(args) => {
             completions::run(args, &mut Cli::command());
             Ok(())

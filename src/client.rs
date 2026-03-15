@@ -97,6 +97,36 @@ impl RemitClient {
         self.request(Method::POST, path, Some(body)).await
     }
 
+    async fn delete_req(&self, path: &str) -> Result<()> {
+        let auth = build_auth_headers("DELETE", path, self.chain.chain_id, &self.chain.router)
+            .context("failed to build auth headers")?;
+
+        let mut req = self.http.request(Method::DELETE, self.url(path));
+        for (k, v) in &auth {
+            req = req.header(k, v);
+        }
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| anyhow!("Network error: {e}"))?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let body_text = resp.text().await.unwrap_or_default();
+            let msg = serde_json::from_str::<serde_json::Value>(&body_text)
+                .ok()
+                .and_then(|v| {
+                    v["message"]
+                        .as_str()
+                        .or(v["error"].as_str())
+                        .map(str::to_owned)
+                })
+                .unwrap_or(body_text);
+            Err(anyhow!("{status}: {msg}"))
+        }
+    }
+
     // ── Public: status ────────────────────────────────────────────────────────
 
     pub async fn status(&self, wallet: &str) -> Result<WalletStatus> {
@@ -109,17 +139,31 @@ impl RemitClient {
         self.get("/health").await
     }
 
-    // ── Public: events ───────────────────────────────────────────────────────
+    // ── Webhooks ──────────────────────────────────────────────────────────────
 
-    pub async fn events(&self, since: Option<i64>, limit: Option<u32>) -> Result<Vec<EventRow>> {
-        let mut path = "/events?".to_string();
-        if let Some(s) = since {
-            path.push_str(&format!("since={s}&"));
-        }
-        if let Some(l) = limit {
-            path.push_str(&format!("limit={l}&"));
-        }
-        self.get(&path).await
+    pub async fn webhook_create(
+        &self,
+        url: &str,
+        events: &[String],
+        chains: &[String],
+    ) -> Result<Webhook> {
+        self.post(
+            "/webhooks",
+            serde_json::json!({
+                "url": url,
+                "events": events,
+                "chains": if chains.is_empty() { None } else { Some(chains) },
+            }),
+        )
+        .await
+    }
+
+    pub async fn webhooks_list(&self) -> Result<Vec<Webhook>> {
+        self.get("/webhooks").await
+    }
+
+    pub async fn webhook_delete(&self, id: &str) -> Result<()> {
+        self.delete_req(&format!("/webhooks/{id}")).await
     }
 
     // ── Payment: direct ───────────────────────────────────────────────────────
@@ -539,14 +583,13 @@ pub struct FaucetResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct EventRow {
-    pub id: Option<i64>,
-    pub wallet: Option<String>,
-    pub event_type: String,
-    pub event_id: Option<String>,
-    pub invoice_id: Option<String>,
-    pub chain: Option<String>,
-    pub data: Option<serde_json::Value>,
+pub struct Webhook {
+    pub id: String,
+    pub url: String,
+    pub events: Vec<String>,
+    pub chains: Vec<String>,
+    pub active: bool,
+    pub secret: Option<String>,
     pub created_at: Option<String>,
 }
 
