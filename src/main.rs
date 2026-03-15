@@ -1,11 +1,12 @@
 #![deny(warnings)]
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 mod auth;
 mod client;
 mod commands;
+mod completions;
 mod config;
 mod output;
 
@@ -79,6 +80,8 @@ enum Commands {
         #[command(subcommand)]
         action: commands::config_cmd::ConfigAction,
     },
+    /// Generate shell completion scripts
+    Completions(completions::CompletionsArgs),
 }
 
 #[tokio::main]
@@ -106,5 +109,9 @@ async fn main() -> Result<()> {
         Commands::Faucet(args) => commands::faucet::run(args, ctx).await,
         Commands::Init(args) => commands::init::run(args, ctx).await,
         Commands::Config { action } => commands::config_cmd::run(action, ctx).await,
+        Commands::Completions(args) => {
+            completions::run(args, &mut Cli::command());
+            Ok(())
+        }
     }
 }

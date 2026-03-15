@@ -26,6 +26,7 @@ thiserror = "1"
 alloy = { version = "1", features = ["signers", "signer-local"] }
 sha3 = "0.10"
 rand = { version = "0.8", features = ["getrandom"] }
+clap_complete = "4"
 dotenvy = "0.15"
 hex = "0.4"
 dirs = "5"

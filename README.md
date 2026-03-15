@@ -88,6 +88,22 @@ remit --testnet balance
 | `--json` | Output raw JSON (machine-readable) |
 | `--testnet` | Use Base Sepolia testnet |
 
+## Shell Completions
+
+```bash
+# bash
+remit completions bash >> ~/.bash_completion
+
+# zsh
+remit completions zsh > "${fpath[1]}/_remit"
+
+# fish
+remit completions fish > ~/.config/fish/completions/remit.fish
+
+# PowerShell
+remit completions powershell >> $PROFILE
+```
+
 ## Auth
 
 Set `REMITMD_KEY` to your private key (hex, with or without `0x` prefix):
