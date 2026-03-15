@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "→ cargo fmt --check"
+cargo fmt --check
+
+echo "→ cargo clippy"
+cargo clippy -- -D warnings
+
+echo "→ cargo test"
+cargo test
+
+echo "→ checking for --no-verify / bypass shortcuts"
+if git diff --cached --name-only | grep -E '\.(rs|toml)$' | xargs grep -l -- '--no-verify\|--skip-hooks\|skip_hooks' 2>/dev/null; then
+  echo "ERROR: commit contains --no-verify or hook bypass patterns"
+  exit 1
+fi
+
+echo "✓ all checks passed"
