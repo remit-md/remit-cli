@@ -1,23 +1,62 @@
-use crate::commands::Context;
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::client::RemitClient;
+use crate::commands::Context;
+use crate::output;
 
 #[derive(Subcommand)]
 pub enum DepositAction {
-    /// Create a deposit address / invoice
+    /// Create a new deposit (refundable collateral)
     Create(DepositCreateArgs),
 }
 
 #[derive(Args)]
 pub struct DepositCreateArgs {
-    /// Expected amount in USDC (optional — open-ended if omitted)
-    #[arg(long)]
-    pub amount: Option<String>,
-    /// Optional memo
-    #[arg(long)]
-    pub memo: Option<String>,
+    /// Provider wallet address
+    pub provider: String,
+    /// Amount in USDC
+    pub amount: String,
+    /// Expiry in seconds from now (default: 86400 = 24h)
+    #[arg(long, default_value = "86400")]
+    pub expiry: u64,
 }
 
-pub async fn run(_action: DepositAction, _ctx: Context) -> Result<()> {
-    todo!("deposit commands — implemented in task 0.5")
+pub async fn run(action: DepositAction, ctx: Context) -> Result<()> {
+    let client = RemitClient::new(ctx.testnet);
+
+    match action {
+        DepositAction::Create(args) => {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let expiry = now as i64 + args.expiry as i64;
+            let deposit = client
+                .deposit_create(&args.provider, &args.amount, expiry)
+                .await?;
+            if ctx.json {
+                output::print_json(&deposit);
+            } else {
+                output::success(&format!("Deposit created: {}", deposit.id));
+                output::print_kv(&[
+                    ("ID", deposit.id.as_str()),
+                    ("Status", deposit.status.as_str()),
+                    ("Provider", deposit.provider.as_deref().unwrap_or("—")),
+                    (
+                        "Amount",
+                        &deposit
+                            .amount
+                            .as_ref()
+                            .map(|v| format!("{v} USDC"))
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
+                    ("Expiry", deposit.expiry.as_deref().unwrap_or("—")),
+                    ("Tx Hash", deposit.tx_hash.as_deref().unwrap_or("—")),
+                ]);
+            }
+        }
+    }
+    Ok(())
 }
