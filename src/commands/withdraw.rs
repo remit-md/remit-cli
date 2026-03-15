@@ -1,6 +1,9 @@
-use crate::commands::Context;
 use anyhow::Result;
 use clap::Args;
+
+use crate::client::RemitClient;
+use crate::commands::Context;
+use crate::output;
 
 /// Generate a withdraw link to move funds out of your Remit wallet.
 #[derive(Args)]
@@ -13,6 +16,17 @@ pub struct WithdrawArgs {
     pub to: Option<String>,
 }
 
-pub async fn run(_args: WithdrawArgs, _ctx: Context) -> Result<()> {
-    todo!("withdraw command — implemented in task 0.6")
+pub async fn run(_args: WithdrawArgs, ctx: Context) -> Result<()> {
+    let client = RemitClient::new(ctx.testnet);
+    let resp = client.link_withdraw().await?;
+
+    if ctx.json {
+        output::print_json(&resp);
+    } else {
+        output::info(&resp.url);
+        if let Some(exp) = resp.expires_at {
+            output::info(&format!("Expires: {exp}"));
+        }
+    }
+    Ok(())
 }
