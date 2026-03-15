@@ -69,7 +69,6 @@ remit --testnet balance
 | `remit init` | Generate keypair + configure auth |
 | `remit status` | Wallet status and balance |
 | `remit balance` | USDC balance |
-| `remit history` | Recent transactions |
 | `remit pay <to> <amount>` | Send one-time payment |
 | `remit tab open/charge/close` | Tab payment model |
 | `remit stream open/close` | Streaming payments |
@@ -80,6 +79,8 @@ remit --testnet balance
 | `remit withdraw` | Generate withdraw link |
 | `remit faucet` | Testnet USDC (testnet only) |
 | `remit config set/get/show` | Manage config |
+| `remit webhook create/list/delete` | Manage webhook subscriptions |
+| `remit a2a discover/pay/card` | A2A agent discovery and payments |
 
 ## Flags
 
@@ -132,7 +133,8 @@ All commands support `--json` for use in scripts and pipelines:
 
 ```bash
 remit --json balance | jq '.usdc'
-remit --json history | jq '.transactions[].status'
+remit --json status | jq '.monthly_volume'
+remit --json webhook list | jq '.[].url'
 ```
 
 ## License
