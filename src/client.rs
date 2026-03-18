@@ -127,6 +127,27 @@ impl RemitClient {
         }
     }
 
+    // ── Public: contracts (unauthenticated) ────────────────────────────────────
+
+    /// Fetch all deployed contract addresses. Unauthenticated — no key needed.
+    pub async fn get_contracts(&self) -> Result<ContractsResponse> {
+        let resp = self
+            .http
+            .get(self.url("/contracts"))
+            .send()
+            .await
+            .map_err(|e| anyhow!("Network error: {e}"))?;
+        let status = resp.status();
+        if status.is_success() {
+            resp.json::<ContractsResponse>()
+                .await
+                .map_err(|e| anyhow!("Failed to parse /contracts response: {e}"))
+        } else {
+            let body = resp.text().await.unwrap_or_default();
+            Err(anyhow!("GET /contracts failed ({status}): {body}"))
+        }
+    }
+
     // ── Public: status ────────────────────────────────────────────────────────
 
     pub async fn status(&self, wallet: &str) -> Result<WalletStatus> {
@@ -173,21 +194,28 @@ impl RemitClient {
         to: &str,
         amount: &str,
         memo: Option<&str>,
+        permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<TxResponse> {
         use rand::Rng;
         let nonce = hex::encode(rand::thread_rng().gen::<[u8; 16]>());
-        self.post(
-            "/payments/direct",
-            serde_json::json!({
-                "to": to,
-                "amount": amount,
-                "task": memo.unwrap_or(""),
-                "chain": chain_name(self.chain.chain_id),
-                "nonce": nonce,
-                "signature": "0x",
-            }),
-        )
-        .await
+        let mut body = serde_json::json!({
+            "to": to,
+            "amount": amount,
+            "task": memo.unwrap_or(""),
+            "chain": chain_name(self.chain.chain_id),
+            "nonce": nonce,
+            "signature": "0x",
+        });
+        if let Some(p) = permit {
+            body["permit"] = serde_json::json!({
+                "value": p.value,
+                "deadline": p.deadline,
+                "v": p.v,
+                "r": p.r,
+                "s": p.s,
+            });
+        }
+        self.post("/payments/direct", body).await
     }
 
     // ── Tabs ─────────────────────────────────────────────────────────────────
@@ -485,6 +513,21 @@ fn chain_name(chain_id: u64) -> &'static str {
 }
 
 // ── Response types ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ContractsResponse {
+    pub chain_id: u64,
+    pub usdc: Option<String>,
+    pub router: String,
+    pub escrow: Option<String>,
+    pub tab: Option<String>,
+    pub stream: Option<String>,
+    pub bounty: Option<String>,
+    pub deposit: Option<String>,
+    pub fee_calculator: Option<String>,
+    pub key_registry: Option<String>,
+    pub arbitration: Option<String>,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WalletStatus {

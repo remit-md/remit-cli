@@ -76,3 +76,42 @@ async fn cli_status_returns_wallet_info() {
     );
     assert!(json["balance"].is_string(), "status should include balance");
 }
+
+// ── Pay (direct payment) ────────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn cli_pay_direct_with_auto_permit() {
+    let payer = TestWallet::generate();
+    let recipient = TestWallet::generate();
+
+    // Fund the payer
+    mint_usdc(&payer.address, 100.0).await;
+    harness::wait_for_balance_change(&payer.address, 0.0).await;
+
+    let payer_before = get_usdc_balance(&payer.address).await;
+    let recipient_before = get_usdc_balance(&recipient.address).await;
+    let fee_before = harness::get_fee_wallet_balance().await;
+
+    // Pay 10 USDC (auto-signs permit)
+    let json = payer.run_cli_json(&["pay", &recipient.address, "10.00"]);
+    assert_eq!(json["status"].as_str().unwrap(), "confirmed");
+    assert!(
+        json["tx_hash"].is_string(),
+        "pay response should have tx_hash"
+    );
+
+    // Wait for balances to settle
+    let payer_after = harness::wait_for_balance_change(&payer.address, payer_before).await;
+    let recipient_after = get_usdc_balance(&recipient.address).await;
+    let fee_after = harness::get_fee_wallet_balance().await;
+
+    // Payer debited ~10.10 (10 + 1% fee = 0.10)
+    harness::assert_balance_change("payer", payer_before, payer_after, -10.10, 100);
+
+    // Recipient credited exactly 10
+    harness::assert_balance_change("recipient", recipient_before, recipient_after, 10.0, 10);
+
+    // Fee wallet credited 0.10 (1% of 10)
+    harness::assert_balance_change("fee_wallet", fee_before, fee_after, 0.10, 100);
+}

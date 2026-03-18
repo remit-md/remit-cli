@@ -9,6 +9,7 @@ mod commands;
 mod completions;
 mod config;
 mod output;
+mod permit;
 
 /// Remit — USDC payment protocol CLI for AI agents
 #[derive(Parser)]
