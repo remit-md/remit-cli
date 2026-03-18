@@ -426,7 +426,43 @@ impl RemitClient {
         self.post("/links/withdraw", serde_json::json!({})).await
     }
 
-    // ── Faucet (testnet only) ─────────────────────────────────────────────────
+    // ── Mint (testnet only) ──────────────────────────────────────────────────
+
+    /// Mint testnet USDC via `POST /mint`. This endpoint is unauthenticated,
+    /// so we skip EIP-712 auth headers.
+    pub async fn mint(&self, wallet: &str, amount: f64) -> Result<MintResponse> {
+        let body = serde_json::json!({ "wallet": wallet, "amount": amount });
+        let req = self
+            .http
+            .request(Method::POST, self.url("/mint"))
+            .json(&body);
+
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| anyhow!("Network error: {e}"))?;
+        let status = resp.status();
+
+        if status.is_success() {
+            resp.json::<MintResponse>()
+                .await
+                .map_err(|e| anyhow!("Failed to parse server response: {e}"))
+        } else {
+            let body_text = resp.text().await.unwrap_or_default();
+            let msg = serde_json::from_str::<serde_json::Value>(&body_text)
+                .ok()
+                .and_then(|v| {
+                    v["message"]
+                        .as_str()
+                        .or(v["error"].as_str())
+                        .map(str::to_owned)
+                })
+                .unwrap_or(body_text);
+            Err(anyhow!("{status}: {msg}"))
+        }
+    }
+
+    // ── Faucet (DEPRECATED — use mint) ──────────────────────────────────────
 
     pub async fn faucet(&self, wallet: &str, amount: Option<&str>) -> Result<FaucetResponse> {
         let mut body = serde_json::json!({ "wallet": wallet });
@@ -572,6 +608,12 @@ pub struct CreateLinkResponse {
     pub token: Option<String>,
     pub expires_at: Option<String>,
     pub wallet_address: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MintResponse {
+    pub tx_hash: String,
+    pub balance: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

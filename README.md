@@ -60,6 +60,9 @@ remit fund
 
 # Use testnet
 remit --testnet balance
+
+# Mint testnet USDC
+remit --testnet mint 100
 ```
 
 ## Commands
@@ -77,7 +80,7 @@ remit --testnet balance
 | `remit deposit create` | Deposit address |
 | `remit fund` | Generate fund link |
 | `remit withdraw` | Generate withdraw link |
-| `remit faucet` | Testnet USDC (testnet only) |
+| `remit mint <amount>` | Mint testnet USDC (max 2500, testnet only) |
 | `remit config set/get/show` | Manage config |
 | `remit webhook create/list/delete` | Manage webhook subscriptions |
 | `remit a2a discover/pay/card` | A2A agent discovery and payments |

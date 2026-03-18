@@ -69,7 +69,9 @@ enum Commands {
     Fund(commands::fund::FundArgs),
     /// Generate a withdraw link
     Withdraw(commands::withdraw::WithdrawArgs),
-    /// Request testnet USDC from faucet
+    /// Mint testnet USDC (max 2500 per request, 1/hr rate limit)
+    Mint(commands::mint::MintArgs),
+    /// Request testnet USDC from faucet (DEPRECATED — use `mint`)
     Faucet(commands::faucet::FaucetArgs),
     /// Generate a new keypair and configure auth
     Init(commands::init::InitArgs),
@@ -113,6 +115,7 @@ async fn main() -> Result<()> {
         Commands::Deposit { action } => commands::deposit::run(action, ctx).await,
         Commands::Fund(args) => commands::fund::run(args, ctx).await,
         Commands::Withdraw(args) => commands::withdraw::run(args, ctx).await,
+        Commands::Mint(args) => commands::mint::run(args, ctx).await,
         Commands::Faucet(args) => commands::faucet::run(args, ctx).await,
         Commands::Init(args) => commands::init::run(args, ctx).await,
         Commands::Config { action } => commands::config_cmd::run(action, ctx).await,

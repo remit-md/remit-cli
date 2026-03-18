@@ -7,6 +7,7 @@ pub mod escrow;
 pub mod faucet;
 pub mod fund;
 pub mod init;
+pub mod mint;
 pub mod pay;
 pub mod status;
 pub mod stream;
