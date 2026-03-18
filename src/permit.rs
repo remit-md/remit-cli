@@ -4,10 +4,12 @@
 //! payment contract calls `transferFrom`. This avoids a separate `approve()`
 //! transaction and is the primary mechanism for agent-wallet payments.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::client::RemitClient;
 
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
@@ -182,4 +184,51 @@ pub async fn sign_usdc_permit(
         r,
         s,
     })
+}
+
+// ── Auto-permit helper for commands ─────────────────────────────────────────
+
+/// Sign a USDC permit for the given spender contract.
+///
+/// `spender_field` is the contract name in the /contracts response (e.g., "router", "escrow").
+/// Returns the permit or an error.
+pub async fn auto_permit(
+    client: &RemitClient,
+    amount_usdc: f64,
+    spender_field: &str,
+) -> Result<PermitSignature> {
+    let key = crate::auth::load_private_key()?;
+    let contracts = client.get_contracts().await.context("fetch contracts")?;
+
+    let spender = match spender_field {
+        "router" => contracts.router.clone(),
+        "escrow" => contracts
+            .escrow
+            .clone()
+            .ok_or_else(|| anyhow!("server did not return escrow address"))?,
+        "tab" => contracts
+            .tab
+            .clone()
+            .ok_or_else(|| anyhow!("server did not return tab address"))?,
+        "stream" => contracts
+            .stream
+            .clone()
+            .ok_or_else(|| anyhow!("server did not return stream address"))?,
+        "bounty" => contracts
+            .bounty
+            .clone()
+            .ok_or_else(|| anyhow!("server did not return bounty address"))?,
+        "deposit" => contracts
+            .deposit
+            .clone()
+            .ok_or_else(|| anyhow!("server did not return deposit address"))?,
+        _ => return Err(anyhow!("unknown spender field: {spender_field}")),
+    };
+
+    let usdc = contracts
+        .usdc
+        .as_deref()
+        .ok_or_else(|| anyhow!("server did not return USDC address"))?;
+
+    sign_usdc_permit(&key, &spender, amount_usdc, contracts.chain_id, usdc).await
 }

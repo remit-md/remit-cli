@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
+use crate::permit;
 
 #[derive(Subcommand)]
 pub enum DepositAction {
@@ -33,8 +34,13 @@ pub async fn run(action: DepositAction, ctx: Context) -> Result<()> {
                 .unwrap_or_default()
                 .as_secs();
             let expiry = now as i64 + args.expiry as i64;
+            let amount_f64: f64 = args
+                .amount
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
+            let permit_sig = permit::auto_permit(&client, amount_f64, "deposit").await?;
             let deposit = client
-                .deposit_create(&args.provider, &args.amount, expiry)
+                .deposit_create(&args.provider, &args.amount, expiry, Some(&permit_sig))
                 .await?;
             if ctx.json {
                 output::print_json(&deposit);

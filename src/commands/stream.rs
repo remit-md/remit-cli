@@ -4,6 +4,7 @@ use clap::{Args, Subcommand};
 use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
+use crate::permit;
 
 #[derive(Subcommand)]
 pub enum StreamAction {
@@ -42,8 +43,13 @@ pub async fn run(action: StreamAction, ctx: Context) -> Result<()> {
 
     match action {
         StreamAction::Open(args) => {
+            let max_f64: f64 = args
+                .max
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid max: {}", args.max))?;
+            let permit_sig = permit::auto_permit(&client, max_f64, "stream").await?;
             let stream = client
-                .stream_open(&args.payee, &args.rate, &args.max)
+                .stream_open(&args.payee, &args.rate, &args.max, Some(&permit_sig))
                 .await?;
             if ctx.json {
                 output::print_json(&stream);

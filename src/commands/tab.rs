@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
+use crate::permit;
 
 #[derive(Subcommand)]
 pub enum TabAction {
@@ -80,8 +81,19 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
                 .unwrap_or_default()
                 .as_secs();
             let expiry = now as i64 + args.expiry as i64;
+            let limit_f64: f64 = args
+                .limit
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid limit: {}", args.limit))?;
+            let permit_sig = permit::auto_permit(&client, limit_f64, "tab").await?;
             let tab = client
-                .tab_open(&args.provider, &args.limit, &per_unit, expiry)
+                .tab_open(
+                    &args.provider,
+                    &args.limit,
+                    &per_unit,
+                    expiry,
+                    Some(&permit_sig),
+                )
                 .await?;
             if ctx.json {
                 output::print_json(&tab);

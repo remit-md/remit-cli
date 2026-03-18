@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::auth::load_private_key;
 use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
@@ -24,24 +23,15 @@ pub struct PayArgs {
 
 pub async fn run(args: PayArgs, ctx: Context) -> Result<()> {
     let client = RemitClient::new(ctx.testnet);
+    let amount: f64 = args
+        .amount
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
 
     let permit_sig = if args.no_permit {
         None
     } else {
-        let key = load_private_key()?;
-        let contracts = client.get_contracts().await?;
-        let usdc = contracts
-            .usdc
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("server did not return USDC address"))?;
-        let amount: f64 = args
-            .amount
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
-        Some(
-            permit::sign_usdc_permit(&key, &contracts.router, amount, contracts.chain_id, usdc)
-                .await?,
-        )
+        Some(permit::auto_permit(&client, amount, "router").await?)
     };
 
     let resp = client

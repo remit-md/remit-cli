@@ -4,6 +4,7 @@ use clap::{Args, Subcommand};
 use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
+use crate::permit;
 
 #[derive(Subcommand)]
 pub enum EscrowAction {
@@ -48,8 +49,13 @@ pub async fn run(action: EscrowAction, ctx: Context) -> Result<()> {
 
     match action {
         EscrowAction::Create(args) => {
+            let amount: f64 = args
+                .amount
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
+            let permit_sig = permit::auto_permit(&client, amount, "escrow").await?;
             let escrow = client
-                .escrow_create(&args.payee, &args.amount, args.timeout)
+                .escrow_create(&args.payee, &args.amount, args.timeout, Some(&permit_sig))
                 .await?;
             if ctx.json {
                 output::print_json(&escrow);

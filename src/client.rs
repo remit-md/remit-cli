@@ -226,18 +226,21 @@ impl RemitClient {
         limit: &str,
         per_unit: &str,
         expiry_secs: i64,
+        permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Tab> {
-        self.post(
-            "/tabs",
-            serde_json::json!({
-                "chain": chain_name(self.chain.chain_id),
-                "provider": provider,
-                "limit_amount": limit,
-                "per_unit": per_unit,
-                "expiry": expiry_secs,
-            }),
-        )
-        .await
+        let mut body = serde_json::json!({
+            "chain": chain_name(self.chain.chain_id),
+            "provider": provider,
+            "limit_amount": limit,
+            "per_unit": per_unit,
+            "expiry": expiry_secs,
+        });
+        if let Some(p) = permit {
+            body["permit"] = serde_json::json!({
+                "value": p.value, "deadline": p.deadline, "v": p.v, "r": p.r, "s": p.s,
+            });
+        }
+        self.post("/tabs", body).await
     }
 
     pub async fn tab_charge(
@@ -285,17 +288,20 @@ impl RemitClient {
         payee: &str,
         rate_per_second: &str,
         max_total: &str,
+        permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Stream> {
-        self.post(
-            "/streams",
-            serde_json::json!({
-                "chain": chain_name(self.chain.chain_id),
-                "payee": payee,
-                "rate_per_second": rate_per_second,
-                "max_total": max_total,
-            }),
-        )
-        .await
+        let mut body = serde_json::json!({
+            "chain": chain_name(self.chain.chain_id),
+            "payee": payee,
+            "rate_per_second": rate_per_second,
+            "max_total": max_total,
+        });
+        if let Some(p) = permit {
+            body["permit"] = serde_json::json!({
+                "value": p.value, "deadline": p.deadline, "v": p.v, "r": p.r, "s": p.s,
+            });
+        }
+        self.post("/streams", body).await
     }
 
     pub async fn stream_close(&self, stream_id: &str) -> Result<Stream> {
@@ -317,6 +323,7 @@ impl RemitClient {
         payee: &str,
         amount: &str,
         timeout_secs: Option<i64>,
+        permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Escrow> {
         use rand::Rng;
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -349,9 +356,14 @@ impl RemitClient {
         .await
         .context("create invoice")?;
 
-        // Fund escrow
-        self.post("/escrows", serde_json::json!({ "invoice_id": invoice_id }))
-            .await
+        // Fund escrow (with permit if provided)
+        let mut body = serde_json::json!({ "invoice_id": invoice_id });
+        if let Some(p) = permit {
+            body["permit"] = serde_json::json!({
+                "value": p.value, "deadline": p.deadline, "v": p.v, "r": p.r, "s": p.s,
+            });
+        }
+        self.post("/escrows", body).await
     }
 
     pub async fn escrow_release(&self, escrow_id: &str) -> Result<Escrow> {
@@ -389,17 +401,20 @@ impl RemitClient {
         amount: &str,
         description: &str,
         expiry_secs: i64,
+        permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Bounty> {
-        self.post(
-            "/bounties",
-            serde_json::json!({
-                "chain": chain_name(self.chain.chain_id),
-                "amount": amount,
-                "task_description": description,
-                "deadline": expiry_secs,
-            }),
-        )
-        .await
+        let mut body = serde_json::json!({
+            "chain": chain_name(self.chain.chain_id),
+            "amount": amount,
+            "task_description": description,
+            "deadline": expiry_secs,
+        });
+        if let Some(p) = permit {
+            body["permit"] = serde_json::json!({
+                "value": p.value, "deadline": p.deadline, "v": p.v, "r": p.r, "s": p.s,
+            });
+        }
+        self.post("/bounties", body).await
     }
 
     pub async fn bounty_submit(&self, bounty_id: &str, proof: &str) -> Result<BountySubmission> {
@@ -431,17 +446,20 @@ impl RemitClient {
         provider: &str,
         amount: &str,
         expiry_secs: i64,
+        permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Deposit> {
-        self.post(
-            "/deposits",
-            serde_json::json!({
-                "chain": chain_name(self.chain.chain_id),
-                "provider": provider,
-                "amount": amount,
-                "expiry": expiry_secs,
-            }),
-        )
-        .await
+        let mut body = serde_json::json!({
+            "chain": chain_name(self.chain.chain_id),
+            "provider": provider,
+            "amount": amount,
+            "expiry": expiry_secs,
+        });
+        if let Some(p) = permit {
+            body["permit"] = serde_json::json!({
+                "value": p.value, "deadline": p.deadline, "v": p.v, "r": p.r, "s": p.s,
+            });
+        }
+        self.post("/deposits", body).await
     }
 
     // ── Links ─────────────────────────────────────────────────────────────────
