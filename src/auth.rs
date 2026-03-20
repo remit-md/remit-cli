@@ -45,7 +45,7 @@ impl ChainConfig {
         Self {
             chain_id: 84532,
             router: std::env::var("REMITMD_ROUTER")
-                .unwrap_or_else(|_| "0x887536bD817B758f99F090a80F48032a24f50916".to_string()),
+                .unwrap_or_else(|_| "0xb3E96ebE54138d1c0caea00Ae098309C7E0138eC".to_string()),
         }
     }
 
