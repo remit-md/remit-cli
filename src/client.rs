@@ -20,7 +20,7 @@ pub const TESTNET_API: &str = "https://testnet.remit.md/api/v0";
 
 pub struct RemitClient {
     http: Client,
-    base: &'static str,
+    base: String,
     chain: ChainConfig,
 }
 
@@ -30,9 +30,13 @@ impl RemitClient {
             .user_agent(concat!("remit-cli/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("failed to build HTTP client");
+        // Allow env var override (useful for acceptance tests pointing at remit.md)
+        let base = std::env::var("REMITMD_API_URL").unwrap_or_else(|_| {
+            (if testnet { TESTNET_API } else { MAINNET_API }).to_string()
+        });
         Self {
             http,
-            base: if testnet { TESTNET_API } else { MAINNET_API },
+            base,
             chain: ChainConfig::for_network(testnet),
         }
     }
