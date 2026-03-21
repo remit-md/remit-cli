@@ -68,14 +68,19 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 
 | Command | Description |
 |---------|-------------|
-| `remit init` | Generate keypair and configure auth |
+| `remit init` | Generate keypair and print to stdout (or `--write-env` to save to `.env`) |
 | `remit status` | Wallet status and balance |
 | `remit balance` | USDC balance |
 | `remit pay <to> <amount>` | One-time payment |
 | `remit tab open/charge/close` | Tab (running balance) |
+| `remit tab get <id>` | Show tab details |
+| `remit tab list` | List open tabs |
 | `remit stream open/close` | Streaming payments |
+| `remit stream list` | List active streams |
 | `remit escrow create/release/cancel/claim-start` | Escrow |
+| `remit escrow list` | List escrows |
 | `remit bounty post/submit/award` | Bounties |
+| `remit bounty list` | List bounties |
 | `remit deposit create` | Deposit address |
 | `remit fund` | Generate fund link |
 | `remit withdraw` | Generate withdraw link |
@@ -85,13 +90,19 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 | `remit config set/get/show` | Configuration |
 | `remit completions <shell>` | Shell completions (bash, zsh, fish, powershell) |
 
-## Flags
+## Global Flags
 
 | Flag | Description |
 |------|-------------|
 | `--json` | Machine-readable JSON output |
 | `--testnet` | Use Base Sepolia testnet |
-| `--no-permit` | Skip EIP-2612 permit auto-signing |
+
+## `pay` Flags
+
+| Flag | Description |
+|------|-------------|
+| `--no-permit` | Skip EIP-2612 permit auto-signing (use existing on-chain approval instead) |
+| `--memo <text>` | Attach a memo to the payment |
 
 ## Auth
 
@@ -101,7 +112,7 @@ Set your private key via environment variable or `.env` file:
 export REMITMD_KEY=0x<your-private-key>
 ```
 
-Or run `remit init` to generate a fresh keypair stored in `~/.remit/config.toml`.
+Or run `remit init` to generate a fresh keypair (prints to stdout). Use `remit init --write-env` to save it to `.env` in the current directory.
 
 **Never commit your private key to git.**
 

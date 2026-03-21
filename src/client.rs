@@ -31,9 +31,8 @@ impl RemitClient {
             .build()
             .expect("failed to build HTTP client");
         // Allow env var override (useful for acceptance tests pointing at remit.md)
-        let base = std::env::var("REMITMD_API_URL").unwrap_or_else(|_| {
-            (if testnet { TESTNET_API } else { MAINNET_API }).to_string()
-        });
+        let base = std::env::var("REMITMD_API_URL")
+            .unwrap_or_else(|_| (if testnet { TESTNET_API } else { MAINNET_API }).to_string());
         Self {
             http,
             base,
