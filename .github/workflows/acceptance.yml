@@ -35,4 +35,4 @@ jobs:
         run: cargo test --test acceptance -- --ignored --test-threads=1
         env:
           REMITMD_KEY: "unused-tests-generate-own-keys"
-          REMITMD_API_URL: "https://remit.md/api/v0"
+          REMITMD_API_URL: "https://remit.md/api/v1"

@@ -186,7 +186,7 @@ pub fn eip712_hash(
 
 /// Build the four auth headers for a request.
 ///
-/// `path` must be the full path as sent to the server, e.g. `/api/v0/pay`.
+/// `path` must be the full path as sent to the server, e.g. `/api/v1/pay`.
 pub fn build_auth_headers(
     method: &str,
     path: &str,
@@ -233,7 +233,7 @@ mod tests {
     use super::*;
 
     // Canonical test vectors from remit-server/test-vectors/eip712.json
-    // Vector 1: POST /api/v0/escrows
+    // Vector 1: POST /api/v1/escrows
     // Anvil test wallet #0 private key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
     const TEST_PRIVATE_KEY: &str =
         "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -251,7 +251,7 @@ mod tests {
     fn test_eip712_hash_post_escrows() {
         let hash = eip712_hash(
             "POST",
-            "/api/v0/escrows",
+            "/api/v1/escrows",
             TEST_TIMESTAMP,
             &test_nonce(),
             TEST_CHAIN_ID,
@@ -260,8 +260,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             hex::encode(hash),
-            "5128e1067782c3f878afeeeab079d90953cadb9e3289636a359cb60f7db60e1e",
-            "POST /api/v0/escrows hash must match test vector"
+            "f5a0d6dae638bc7974ebe98f0b0633746a39fb5ec338a7bc6c7695b7a476aa56",
+            "POST /api/v1/escrows hash must match test vector"
         );
     }
 
@@ -269,7 +269,7 @@ mod tests {
     fn test_eip712_hash_get_escrows() {
         let hash = eip712_hash(
             "GET",
-            "/api/v0/escrows",
+            "/api/v1/escrows",
             TEST_TIMESTAMP,
             &test_nonce(),
             TEST_CHAIN_ID,
@@ -278,8 +278,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             hex::encode(hash),
-            "9562ff6f9a7db1df7482474fef4c10868fe37e123510cd33643bd231e296f1ff",
-            "GET /api/v0/escrows hash must match test vector"
+            "bdc05060d899f3c6a9396e2791fb6818bb8d69a6b2ab17909028bd1a793978dc",
+            "GET /api/v1/escrows hash must match test vector"
         );
     }
 
@@ -288,7 +288,7 @@ mod tests {
         // Sign with test key directly (no env var mutation — avoids test race conditions)
         let hash = eip712_hash(
             "POST",
-            "/api/v0/escrows",
+            "/api/v1/escrows",
             TEST_TIMESTAMP,
             &test_nonce(),
             TEST_CHAIN_ID,
