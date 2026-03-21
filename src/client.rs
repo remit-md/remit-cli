@@ -13,8 +13,8 @@ use crate::auth::{build_auth_headers, ChainConfig};
 
 // ── Base URLs ─────────────────────────────────────────────────────────────────
 
-pub const MAINNET_API: &str = "https://remit.md/api/v0";
-pub const TESTNET_API: &str = "https://testnet.remit.md/api/v0";
+pub const MAINNET_API: &str = "https://remit.md/api/v1";
+pub const TESTNET_API: &str = "https://testnet.remit.md/api/v1";
 
 // ── Client ────────────────────────────────────────────────────────────────────
 

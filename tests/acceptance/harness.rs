@@ -9,7 +9,7 @@ use std::process::Command;
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
-pub const API_URL: &str = "https://remit.md/api/v0";
+pub const API_URL: &str = "https://remit.md/api/v1";
 pub const RPC_URL: &str = "https://sepolia.base.org";
 pub const USDC_ADDRESS: &str = "0x142aD61B8d2edD6b3807D9266866D97C35Ee0317";
 pub const FEE_WALLET: &str = "0xd3f721BDF92a2bB5Dd8d2FE2AFC03aFE5629B420";
