@@ -30,13 +30,12 @@ pub struct ChainConfig {
 }
 
 impl ChainConfig {
-    /// Mainnet — Base (chain 8453). Router address TBD until mainnet deploy.
+    /// Mainnet — Base (chain 8453).
     pub fn mainnet() -> Self {
         Self {
             chain_id: 8453,
-            // Will be set at mainnet deploy. For now the server runs on Base Sepolia.
             router: std::env::var("REMITMD_ROUTER")
-                .unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".to_string()),
+                .unwrap_or_else(|_| "0xAf2e211BC585D3Ab37e9BD546Fb25747a09254D2".to_string()),
         }
     }
 
@@ -50,13 +49,11 @@ impl ChainConfig {
     }
 
     /// Select chain config for the given testnet flag.
-    /// Currently both use Base Sepolia as mainnet deploy hasn't happened.
     pub fn for_network(testnet: bool) -> Self {
         if testnet {
             Self::testnet()
         } else {
-            // Production server currently runs on Base Sepolia
-            Self::testnet()
+            Self::mainnet()
         }
     }
 }
