@@ -7,6 +7,9 @@ concurrency:
   group: acceptance-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   acceptance:
     name: CLI acceptance tests (Base Sepolia)
