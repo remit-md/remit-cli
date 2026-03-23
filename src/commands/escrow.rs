@@ -14,7 +14,7 @@ pub enum EscrowAction {
     Release(EscrowIdArgs),
     /// Cancel escrow and return funds to payer
     Cancel(EscrowIdArgs),
-    /// Start a claim process (dispute window)
+    /// Start a claim process
     #[command(name = "claim-start")]
     ClaimStart(EscrowIdArgs),
     /// List escrows
