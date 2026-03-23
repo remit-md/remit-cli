@@ -75,17 +75,15 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
 
     match action {
         TabAction::Open(args) => {
+            super::validate_positive_amount(&args.limit, "limit")?;
+            super::validate_address(&args.provider, "provider")?;
             let per_unit = args.per_unit.unwrap_or_else(|| args.limit.clone());
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
             let expiry = now as i64 + args.expiry as i64;
-            let limit_f64: f64 = args
-                .limit
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid limit: {}", args.limit))?;
-            let permit_sig = permit::auto_permit(&client, limit_f64, "tab").await?;
+            let permit_sig = permit::auto_permit(&client, &args.limit, "tab").await?;
             let tab = client
                 .tab_open(
                     &args.provider,
@@ -104,6 +102,7 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
         }
 
         TabAction::Charge(args) => {
+            super::validate_positive_amount(&args.amount, "amount")?;
             let cumulative = args.cumulative.unwrap_or_else(|| args.amount.clone());
             let charge = client
                 .tab_charge(&args.tab_id, &args.amount, &cumulative, args.call_count)
@@ -124,11 +123,9 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
         }
 
         TabAction::Close(args) => {
-            let total_charged = "0"; // server computes final from tab state
-            let final_amount = args
-                .final_amount
-                .unwrap_or_else(|| total_charged.to_string());
-            let tab = client.tab_close(&args.tab_id, &final_amount).await?;
+            let tab = client
+                .tab_close(&args.tab_id, args.final_amount.as_deref())
+                .await?;
             if ctx.json {
                 output::print_json(&tab);
             } else {

@@ -30,13 +30,29 @@ impl RemitClient {
             .user_agent(concat!("remit-cli/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("failed to build HTTP client");
-        // Allow env var override (useful for acceptance tests pointing at remit.md)
-        let base = std::env::var("REMITMD_API_URL")
-            .unwrap_or_else(|_| (if testnet { TESTNET_API } else { MAINNET_API }).to_string());
+
+        // Load user config — network and api_base can override defaults.
+        let cfg = crate::config::load().unwrap_or_default();
+
+        // Determine network: CLI flag wins, then config, then default (mainnet).
+        let is_testnet = testnet
+            || cfg
+                .network
+                .as_deref()
+                .map(|n| n == "testnet")
+                .unwrap_or(false);
+
+        // Determine API base: env var wins, then config, then network default.
+        let base = std::env::var("REMITMD_API_URL").unwrap_or_else(|_| {
+            cfg.api_base
+                .clone()
+                .unwrap_or_else(|| (if is_testnet { TESTNET_API } else { MAINNET_API }).to_string())
+        });
+
         Self {
             http,
             base,
-            chain: ChainConfig::for_network(testnet),
+            chain: ChainConfig::for_network(is_testnet),
         }
     }
 
@@ -200,12 +216,13 @@ impl RemitClient {
         permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<TxResponse> {
         use rand::Rng;
+        let chain = chain_name(self.chain.chain_id)?;
         let nonce = hex::encode(rand::thread_rng().gen::<[u8; 16]>());
         let mut body = serde_json::json!({
             "to": to,
             "amount": amount,
             "task": memo.unwrap_or(""),
-            "chain": chain_name(self.chain.chain_id),
+            "chain": chain,
             "nonce": nonce,
             "signature": "0x",
         });
@@ -231,8 +248,9 @@ impl RemitClient {
         expiry_secs: i64,
         permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Tab> {
+        let chain = chain_name(self.chain.chain_id)?;
         let mut body = serde_json::json!({
-            "chain": chain_name(self.chain.chain_id),
+            "chain": chain,
             "provider": provider,
             "limit_amount": limit,
             "per_unit": per_unit,
@@ -265,15 +283,14 @@ impl RemitClient {
         .await
     }
 
-    pub async fn tab_close(&self, tab_id: &str, final_amount: &str) -> Result<Tab> {
-        self.post(
-            &format!("/tabs/{tab_id}/close"),
-            serde_json::json!({
-                "final_amount": final_amount,
-                "provider_sig": "0x",
-            }),
-        )
-        .await
+    pub async fn tab_close(&self, tab_id: &str, final_amount: Option<&str>) -> Result<Tab> {
+        let mut body = serde_json::json!({
+            "provider_sig": "0x",
+        });
+        if let Some(amt) = final_amount {
+            body["final_amount"] = serde_json::Value::String(amt.to_string());
+        }
+        self.post(&format!("/tabs/{tab_id}/close"), body).await
     }
 
     pub async fn tab_get(&self, tab_id: &str) -> Result<Tab> {
@@ -293,8 +310,9 @@ impl RemitClient {
         max_total: &str,
         permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Stream> {
+        let chain = chain_name(self.chain.chain_id)?;
         let mut body = serde_json::json!({
-            "chain": chain_name(self.chain.chain_id),
+            "chain": chain,
             "payee": payee,
             "rate_per_second": rate_per_second,
             "max_total": max_total,
@@ -331,6 +349,7 @@ impl RemitClient {
         use rand::Rng;
         use std::time::{SystemTime, UNIX_EPOCH};
 
+        let chain = chain_name(self.chain.chain_id)?;
         let nonce = hex::encode(rand::thread_rng().gen::<[u8; 16]>());
         let invoice_id = format!("cli-{}", hex::encode(rand::thread_rng().gen::<[u8; 8]>()));
         let now = SystemTime::now()
@@ -346,7 +365,7 @@ impl RemitClient {
             "/invoices",
             serde_json::json!({
                 "id": invoice_id,
-                "chain": chain_name(self.chain.chain_id),
+                "chain": chain,
                 "to_agent": payee,
                 "amount": amount,
                 "type": "escrow",
@@ -406,8 +425,9 @@ impl RemitClient {
         expiry_secs: i64,
         permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Bounty> {
+        let chain = chain_name(self.chain.chain_id)?;
         let mut body = serde_json::json!({
-            "chain": chain_name(self.chain.chain_id),
+            "chain": chain,
             "amount": amount,
             "task_description": description,
             "deadline": expiry_secs,
@@ -451,8 +471,9 @@ impl RemitClient {
         expiry_secs: i64,
         permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Deposit> {
+        let chain = chain_name(self.chain.chain_id)?;
         let mut body = serde_json::json!({
-            "chain": chain_name(self.chain.chain_id),
+            "chain": chain,
             "provider": provider,
             "amount": amount,
             "expiry": expiry_secs,
@@ -467,12 +488,27 @@ impl RemitClient {
 
     // ── Links ─────────────────────────────────────────────────────────────────
 
-    pub async fn link_fund(&self) -> Result<CreateLinkResponse> {
-        self.post("/links/fund", serde_json::json!({})).await
+    pub async fn link_fund(&self, amount: Option<&str>) -> Result<CreateLinkResponse> {
+        let mut body = serde_json::json!({});
+        if let Some(amt) = amount {
+            body["amount"] = serde_json::Value::String(amt.to_string());
+        }
+        self.post("/links/fund", body).await
     }
 
-    pub async fn link_withdraw(&self) -> Result<CreateLinkResponse> {
-        self.post("/links/withdraw", serde_json::json!({})).await
+    pub async fn link_withdraw(
+        &self,
+        amount: Option<&str>,
+        to: Option<&str>,
+    ) -> Result<CreateLinkResponse> {
+        let mut body = serde_json::json!({});
+        if let Some(amt) = amount {
+            body["amount"] = serde_json::Value::String(amt.to_string());
+        }
+        if let Some(addr) = to {
+            body["to"] = serde_json::Value::String(addr.to_string());
+        }
+        self.post("/links/withdraw", body).await
     }
 
     // ── Mint (testnet only) ──────────────────────────────────────────────────
@@ -524,12 +560,12 @@ impl RemitClient {
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-fn chain_name(chain_id: u64) -> &'static str {
+fn chain_name(chain_id: u64) -> Result<&'static str> {
     match chain_id {
-        8453 => "base",
-        84532 => "base-sepolia",
-        31337 => "localhost",
-        _ => "base-sepolia",
+        8453 => Ok("base"),
+        84532 => Ok("base-sepolia"),
+        31337 => Ok("localhost"),
+        _ => Err(anyhow!("unknown chain ID: {chain_id}")),
     }
 }
 
@@ -704,4 +740,23 @@ pub struct PagedResponse<T> {
     pub total: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chain_name_known() {
+        assert_eq!(chain_name(8453).unwrap(), "base");
+        assert_eq!(chain_name(84532).unwrap(), "base-sepolia");
+        assert_eq!(chain_name(31337).unwrap(), "localhost");
+    }
+
+    #[test]
+    fn test_chain_name_unknown_errors() {
+        assert!(chain_name(1).is_err());
+        assert!(chain_name(0).is_err());
+        assert!(chain_name(999999).is_err());
+    }
 }

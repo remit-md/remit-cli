@@ -49,11 +49,9 @@ pub async fn run(action: EscrowAction, ctx: Context) -> Result<()> {
 
     match action {
         EscrowAction::Create(args) => {
-            let amount: f64 = args
-                .amount
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
-            let permit_sig = permit::auto_permit(&client, amount, "escrow").await?;
+            super::validate_positive_amount(&args.amount, "amount")?;
+            super::validate_address(&args.payee, "payee")?;
+            let permit_sig = permit::auto_permit(&client, &args.amount, "escrow").await?;
             let escrow = client
                 .escrow_create(&args.payee, &args.amount, args.timeout, Some(&permit_sig))
                 .await?;

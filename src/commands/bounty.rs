@@ -57,16 +57,13 @@ pub async fn run(action: BountyAction, ctx: Context) -> Result<()> {
 
     match action {
         BountyAction::Post(args) => {
+            super::validate_positive_amount(&args.amount, "amount")?;
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
             let deadline = now as i64 + args.expiry as i64;
-            let amount_f64: f64 = args
-                .amount
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
-            let permit_sig = permit::auto_permit(&client, amount_f64, "bounty").await?;
+            let permit_sig = permit::auto_permit(&client, &args.amount, "bounty").await?;
             let bounty = client
                 .bounty_post(&args.amount, &args.description, deadline, Some(&permit_sig))
                 .await?;

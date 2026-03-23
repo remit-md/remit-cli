@@ -26,14 +26,37 @@ pub async fn run(args: InitArgs, ctx: Context) -> Result<()> {
         let line = format!("REMITMD_KEY={private_key}\n");
 
         if env_path.exists() {
-            // Append (don't overwrite existing .env)
-            use std::io::Write;
-            let mut file = std::fs::OpenOptions::new()
-                .append(true)
-                .open(env_path)
-                .context("opening .env")?;
-            file.write_all(line.as_bytes()).context("writing to .env")?;
-            output::success("Appended REMITMD_KEY to .env");
+            let contents = std::fs::read_to_string(env_path).context("reading .env")?;
+
+            // Check if REMITMD_KEY already exists — replace it instead of appending a duplicate
+            let has_key = contents
+                .lines()
+                .any(|l| l.starts_with("REMITMD_KEY=") || l.starts_with("REMITMD_KEY ="));
+
+            if has_key {
+                let new_contents: String = contents
+                    .lines()
+                    .map(|l| {
+                        if l.starts_with("REMITMD_KEY=") || l.starts_with("REMITMD_KEY =") {
+                            format!("REMITMD_KEY={private_key}")
+                        } else {
+                            l.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    + "\n";
+                std::fs::write(env_path, new_contents).context("writing .env")?;
+                output::success("Replaced REMITMD_KEY in .env");
+            } else {
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(env_path)
+                    .context("opening .env")?;
+                file.write_all(line.as_bytes()).context("writing to .env")?;
+                output::success("Appended REMITMD_KEY to .env");
+            }
         } else {
             std::fs::write(env_path, &line).context("writing .env")?;
             output::success("Created .env with REMITMD_KEY");

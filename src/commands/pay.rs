@@ -22,16 +22,14 @@ pub struct PayArgs {
 }
 
 pub async fn run(args: PayArgs, ctx: Context) -> Result<()> {
+    super::validate_positive_amount(&args.amount, "amount")?;
+    super::validate_address(&args.to, "to")?;
     let client = RemitClient::new(ctx.testnet);
-    let amount: f64 = args
-        .amount
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
 
     let permit_sig = if args.no_permit {
         None
     } else {
-        Some(permit::auto_permit(&client, amount, "router").await?)
+        Some(permit::auto_permit(&client, &args.amount, "router").await?)
     };
 
     let resp = client
