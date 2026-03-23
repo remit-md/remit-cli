@@ -547,7 +547,6 @@ pub struct ContractsResponse {
     pub deposit: Option<String>,
     pub fee_calculator: Option<String>,
     pub key_registry: Option<String>,
-    pub arbitration: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
