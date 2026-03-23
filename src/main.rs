@@ -100,10 +100,23 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let cli = Cli::parse();
-    let ctx = commands::Context {
-        json: cli.json,
-        testnet: cli.testnet,
-    };
+
+    // Load config — output_format from config applies if --json not passed on CLI.
+    let cfg = config::load().unwrap_or_default();
+    let json = cli.json
+        || cfg
+            .output_format
+            .as_deref()
+            .map(|f| f == "json")
+            .unwrap_or(false);
+    let testnet = cli.testnet
+        || cfg
+            .network
+            .as_deref()
+            .map(|n| n == "testnet")
+            .unwrap_or(false);
+
+    let ctx = commands::Context { json, testnet };
 
     match cli.command {
         Commands::Pay(args) => commands::pay::run(args, ctx).await,

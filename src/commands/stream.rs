@@ -43,11 +43,10 @@ pub async fn run(action: StreamAction, ctx: Context) -> Result<()> {
 
     match action {
         StreamAction::Open(args) => {
-            let max_f64: f64 = args
-                .max
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid max: {}", args.max))?;
-            let permit_sig = permit::auto_permit(&client, max_f64, "stream").await?;
+            super::validate_positive_amount(&args.rate, "rate")?;
+            super::validate_positive_amount(&args.max, "max")?;
+            super::validate_address(&args.payee, "payee")?;
+            let permit_sig = permit::auto_permit(&client, &args.max, "stream").await?;
             let stream = client
                 .stream_open(&args.payee, &args.rate, &args.max, Some(&permit_sig))
                 .await?;

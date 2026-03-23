@@ -16,9 +16,11 @@ pub struct WithdrawArgs {
     pub to: Option<String>,
 }
 
-pub async fn run(_args: WithdrawArgs, ctx: Context) -> Result<()> {
+pub async fn run(args: WithdrawArgs, ctx: Context) -> Result<()> {
     let client = RemitClient::new(ctx.testnet);
-    let resp = client.link_withdraw().await?;
+    let resp = client
+        .link_withdraw(args.amount.as_deref(), args.to.as_deref())
+        .await?;
 
     if ctx.json {
         output::print_json(&resp);

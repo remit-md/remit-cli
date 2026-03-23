@@ -29,16 +29,14 @@ pub async fn run(action: DepositAction, ctx: Context) -> Result<()> {
 
     match action {
         DepositAction::Create(args) => {
+            super::validate_positive_amount(&args.amount, "amount")?;
+            super::validate_address(&args.provider, "provider")?;
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
             let expiry = now as i64 + args.expiry as i64;
-            let amount_f64: f64 = args
-                .amount
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid amount: {}", args.amount))?;
-            let permit_sig = permit::auto_permit(&client, amount_f64, "deposit").await?;
+            let permit_sig = permit::auto_permit(&client, &args.amount, "deposit").await?;
             let deposit = client
                 .deposit_create(&args.provider, &args.amount, expiry, Some(&permit_sig))
                 .await?;
