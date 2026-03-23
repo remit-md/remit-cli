@@ -11,8 +11,8 @@ use std::process::Command;
 
 pub const API_URL: &str = "https://remit.md/api/v1";
 pub const RPC_URL: &str = "https://sepolia.base.org";
-pub const USDC_ADDRESS: &str = "0x142aD61B8d2edD6b3807D9266866D97C35Ee0317";
-pub const FEE_WALLET: &str = "0xd3f721BDF92a2bB5Dd8d2FE2AFC03aFE5629B420";
+pub const USDC_ADDRESS: &str = "0x2d846325766921935f37d5b4478196d3ef93707c";
+pub const FEE_WALLET: &str = "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38";
 
 // ── CLI output ──────────────────────────────────────────────────────────────
 
