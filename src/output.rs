@@ -8,7 +8,7 @@ use serde::Serialize;
 pub fn print_json<T: Serialize>(value: &T) {
     println!(
         "{}",
-        serde_json::to_string_pretty(value).unwrap_or_default()
+        serde_json::to_string_pretty(value).expect("failed to serialize value as JSON")
     );
 }
 

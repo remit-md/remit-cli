@@ -27,9 +27,9 @@ pub struct TabOpenArgs {
     pub provider: String,
     /// Maximum spending limit in USDC
     pub limit: String,
-    /// Per-unit charge in USDC (default: same as limit)
+    /// Per-unit charge in USDC (required)
     #[arg(long)]
-    pub per_unit: Option<String>,
+    pub per_unit: String,
     /// Expiry in seconds from now (default: 86400 = 24h)
     #[arg(long, default_value = "86400")]
     pub expiry: u64,
@@ -41,9 +41,9 @@ pub struct TabChargeArgs {
     pub tab_id: String,
     /// Amount to charge in USDC
     pub amount: String,
-    /// Running cumulative total (default: same as amount for first charge)
+    /// Running cumulative total (required — caller must track)
     #[arg(long)]
-    pub cumulative: Option<String>,
+    pub cumulative: String,
     /// Call count for this charge (default: 1)
     #[arg(long, default_value = "1")]
     pub call_count: i32,
@@ -77,7 +77,6 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
         TabAction::Open(args) => {
             super::validate_positive_amount(&args.limit, "limit")?;
             super::validate_address(&args.provider, "provider")?;
-            let per_unit = args.per_unit.unwrap_or_else(|| args.limit.clone());
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(|_| anyhow::anyhow!("system clock error: time before UNIX epoch"))?
@@ -88,7 +87,7 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
                 .tab_open(
                     &args.provider,
                     &args.limit,
-                    &per_unit,
+                    &args.per_unit,
                     expiry,
                     Some(&permit_sig),
                 )
@@ -103,9 +102,13 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
 
         TabAction::Charge(args) => {
             super::validate_positive_amount(&args.amount, "amount")?;
-            let cumulative = args.cumulative.unwrap_or_else(|| args.amount.clone());
             let charge = client
-                .tab_charge(&args.tab_id, &args.amount, &cumulative, args.call_count)
+                .tab_charge(
+                    &args.tab_id,
+                    &args.amount,
+                    &args.cumulative,
+                    args.call_count,
+                )
                 .await?;
             if ctx.json {
                 output::print_json(&charge);
