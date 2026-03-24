@@ -25,80 +25,17 @@ pub struct PermitSignature {
     pub s: String,
 }
 
-// ── Permit nonce fetch (API-first, RPC fallback) ───────────────────────────
-
-const MAINNET_RPC_URL: &str = "https://mainnet.base.org";
-const TESTNET_RPC_URL: &str = "https://sepolia.base.org";
-
-/// Return the RPC URL for the given chain ID, respecting `REMITMD_RPC_URL` override.
-fn rpc_url_for_chain(chain_id: u64) -> Result<String> {
-    if let Ok(url) = std::env::var("REMITMD_RPC_URL") {
-        return Ok(url);
-    }
-    match chain_id {
-        8453 => Ok(MAINNET_RPC_URL.to_string()),
-        84532 => Ok(TESTNET_RPC_URL.to_string()),
-        _ => Err(anyhow!(
-            "Unknown chain_id {chain_id}. Supported: 8453 (Base), 84532 (Base Sepolia). \
-             Set REMITMD_RPC_URL for custom chains."
-        )),
-    }
-}
+// ── Permit nonce fetch ───────────────────────────────────────────────────────
 
 /// Fetch the EIP-2612 permit nonce via the API (/status/{address}).
-/// Falls back to direct RPC if the API is unavailable or doesn't return the nonce.
-pub async fn fetch_permit_nonce(
-    client: &RemitClient,
-    owner: &str,
-    usdc_address: &str,
-    chain_id: u64,
-) -> Result<u64> {
-    // Try API first.
-    if let Ok(status) = client.status(owner).await {
-        if let Some(nonce) = status.permit_nonce {
-            return Ok(nonce);
-        }
-    }
-    // Fall back to direct RPC.
-    fetch_usdc_nonce_rpc(owner, usdc_address, chain_id).await
-}
-
-/// Fallback: fetch the EIP-2612 nonce directly from the USDC contract via JSON-RPC eth_call.
-/// Uses `nonces(address)` selector = 0x7ecebe00.
-async fn fetch_usdc_nonce_rpc(owner: &str, usdc_address: &str, chain_id: u64) -> Result<u64> {
-    let padded = owner.to_lowercase().trim_start_matches("0x").to_string();
-    let padded = format!("{:0>64}", padded);
-    let data = format!("0x7ecebe00{padded}");
-
-    let rpc_url = rpc_url_for_chain(chain_id)?;
-    let http = reqwest::Client::new();
-    let resp = http
-        .post(&rpc_url)
-        .json(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_call",
-            "params": [{ "to": usdc_address, "data": data }, "latest"],
-        }))
-        .send()
+pub async fn fetch_permit_nonce(client: &RemitClient, owner: &str) -> Result<u64> {
+    let status = client
+        .status(owner)
         .await
-        .map_err(|e| anyhow!("RPC nonce fetch failed: {e}"))?;
-
-    let json: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow!("RPC nonce response parse failed: {e}"))?;
-
-    if let Some(err) = json.get("error") {
-        return Err(anyhow!("RPC nonces() error: {err}"));
-    }
-
-    let hex_result = json["result"]
-        .as_str()
-        .ok_or_else(|| anyhow!("RPC returned null result for nonce query — USDC contract may not exist at {usdc_address}"))?;
-    let nonce = u64::from_str_radix(hex_result.trim_start_matches("0x"), 16)
-        .map_err(|e| anyhow!("Failed to parse nonce hex '{hex_result}': {e}"))?;
-    Ok(nonce)
+        .context("failed to fetch wallet status for permit nonce")?;
+    status
+        .permit_nonce
+        .ok_or_else(|| anyhow!("server did not return permit_nonce for {owner}"))
 }
 
 // ── EIP-712 permit signing ──────────────────────────────────────────────────
@@ -191,8 +128,8 @@ pub async fn sign_usdc_permit(
     // Value in USDC smallest unit (6 decimals) — integer math, no floats
     let value = parse_usdc_to_micro(amount_usdc)?;
 
-    // Fetch nonce: API first, RPC fallback
-    let nonce = fetch_permit_nonce(client, &owner, usdc_address, chain_id).await?;
+    // Fetch nonce from API
+    let nonce = fetch_permit_nonce(client, &owner).await?;
 
     // Deadline: 1 hour from now
     let deadline = SystemTime::now()
@@ -309,7 +246,15 @@ pub async fn auto_permit(
         .as_deref()
         .ok_or_else(|| anyhow!("server did not return USDC address"))?;
 
-    sign_usdc_permit(client, &key, &spender, amount_usdc, contracts.chain_id, usdc).await
+    sign_usdc_permit(
+        client,
+        &key,
+        &spender,
+        amount_usdc,
+        contracts.chain_id,
+        usdc,
+    )
+    .await
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -353,24 +298,5 @@ mod tests {
         assert!(parse_usdc_to_micro("abc").is_err());
         assert!(parse_usdc_to_micro("").is_err());
         assert!(parse_usdc_to_micro("1.2.3").is_err());
-    }
-
-    #[test]
-    fn test_rpc_url_for_chain_mainnet() {
-        // Without env var override, mainnet should use base.org
-        std::env::remove_var("REMITMD_RPC_URL");
-        assert_eq!(rpc_url_for_chain(8453).unwrap(), MAINNET_RPC_URL);
-    }
-
-    #[test]
-    fn test_rpc_url_for_chain_testnet() {
-        std::env::remove_var("REMITMD_RPC_URL");
-        assert_eq!(rpc_url_for_chain(84532).unwrap(), TESTNET_RPC_URL);
-    }
-
-    #[test]
-    fn test_rpc_url_for_chain_unknown_errors() {
-        std::env::remove_var("REMITMD_RPC_URL");
-        assert!(rpc_url_for_chain(12345).is_err());
     }
 }
