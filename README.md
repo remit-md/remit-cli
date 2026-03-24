@@ -1,5 +1,7 @@
 # remit-cli
 
+> [Skill MD](https://remit.md) · [Docs](https://remit.md/docs) · [Agent Spec](https://remit.md/agent.md)
+
 Command-line interface for [Remit](https://remit.md) — USDC payments for AI agents on Base.
 
 ## Install
