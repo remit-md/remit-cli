@@ -608,6 +608,7 @@ pub struct WalletStatus {
     pub active_escrows: Option<i64>,
     pub active_tabs: Option<i64>,
     pub active_streams: Option<i64>,
+    pub permit_nonce: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

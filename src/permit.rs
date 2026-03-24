@@ -25,7 +25,7 @@ pub struct PermitSignature {
     pub s: String,
 }
 
-// ── RPC nonce fetch ─────────────────────────────────────────────────────────
+// ── Permit nonce fetch (API-first, RPC fallback) ───────────────────────────
 
 const MAINNET_RPC_URL: &str = "https://mainnet.base.org";
 const TESTNET_RPC_URL: &str = "https://sepolia.base.org";
@@ -45,16 +45,34 @@ fn rpc_url_for_chain(chain_id: u64) -> Result<String> {
     }
 }
 
-/// Fetch the current EIP-2612 nonce for `owner` from the USDC contract.
+/// Fetch the EIP-2612 permit nonce via the API (/status/{address}).
+/// Falls back to direct RPC if the API is unavailable or doesn't return the nonce.
+pub async fn fetch_permit_nonce(
+    client: &RemitClient,
+    owner: &str,
+    usdc_address: &str,
+    chain_id: u64,
+) -> Result<u64> {
+    // Try API first.
+    if let Ok(status) = client.status(owner).await {
+        if let Some(nonce) = status.permit_nonce {
+            return Ok(nonce);
+        }
+    }
+    // Fall back to direct RPC.
+    fetch_usdc_nonce_rpc(owner, usdc_address, chain_id).await
+}
+
+/// Fallback: fetch the EIP-2612 nonce directly from the USDC contract via JSON-RPC eth_call.
 /// Uses `nonces(address)` selector = 0x7ecebe00.
-pub async fn fetch_usdc_nonce(owner: &str, usdc_address: &str, chain_id: u64) -> Result<u64> {
+async fn fetch_usdc_nonce_rpc(owner: &str, usdc_address: &str, chain_id: u64) -> Result<u64> {
     let padded = owner.to_lowercase().trim_start_matches("0x").to_string();
     let padded = format!("{:0>64}", padded);
     let data = format!("0x7ecebe00{padded}");
 
     let rpc_url = rpc_url_for_chain(chain_id)?;
-    let client = reqwest::Client::new();
-    let resp = client
+    let http = reqwest::Client::new();
+    let resp = http
         .post(&rpc_url)
         .json(&serde_json::json!({
             "jsonrpc": "2.0",
@@ -147,12 +165,14 @@ fn parse_usdc_to_micro(amount: &str) -> Result<u64> {
 
 /// Sign an EIP-2612 USDC permit.
 ///
+/// - `client`: RemitClient for API-based nonce fetch
 /// - `private_key`: hex string (with or without 0x prefix)
 /// - `spender`: the contract that will call transferFrom (e.g. Router)
 /// - `amount_usdc`: amount in USDC as string (e.g. "10.50")
 /// - `chain_id`: chain ID (84532 for Base Sepolia)
 /// - `usdc_address`: USDC contract address
 pub async fn sign_usdc_permit(
+    client: &RemitClient,
     private_key: &str,
     spender: &str,
     amount_usdc: &str,
@@ -171,8 +191,8 @@ pub async fn sign_usdc_permit(
     // Value in USDC smallest unit (6 decimals) — integer math, no floats
     let value = parse_usdc_to_micro(amount_usdc)?;
 
-    // Fetch on-chain nonce
-    let nonce = fetch_usdc_nonce(&owner, usdc_address, chain_id).await?;
+    // Fetch nonce: API first, RPC fallback
+    let nonce = fetch_permit_nonce(client, &owner, usdc_address, chain_id).await?;
 
     // Deadline: 1 hour from now
     let deadline = SystemTime::now()
@@ -289,7 +309,7 @@ pub async fn auto_permit(
         .as_deref()
         .ok_or_else(|| anyhow!("server did not return USDC address"))?;
 
-    sign_usdc_permit(&key, &spender, amount_usdc, contracts.chain_id, usdc).await
+    sign_usdc_permit(client, &key, &spender, amount_usdc, contracts.chain_id, usdc).await
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
