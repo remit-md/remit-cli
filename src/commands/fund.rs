@@ -14,7 +14,7 @@ pub struct FundArgs {
 }
 
 pub async fn run(args: FundArgs, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
     let resp = client.link_fund(args.amount.as_deref()).await?;
 
     if ctx.json {

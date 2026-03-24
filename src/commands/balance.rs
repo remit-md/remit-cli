@@ -20,7 +20,7 @@ pub async fn run(args: BalanceArgs, ctx: Context) -> Result<()> {
         None => wallet_address()?,
     };
 
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
     let resp = client.status(&addr).await?;
 
     if ctx.json {

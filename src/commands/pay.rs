@@ -24,7 +24,7 @@ pub struct PayArgs {
 pub async fn run(args: PayArgs, ctx: Context) -> Result<()> {
     super::validate_positive_amount(&args.amount, "amount")?;
     super::validate_address(&args.to, "to")?;
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
 
     let permit_sig = if args.no_permit {
         None

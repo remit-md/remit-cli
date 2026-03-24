@@ -25,7 +25,7 @@ pub struct DepositCreateArgs {
 }
 
 pub async fn run(action: DepositAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
 
     match action {
         DepositAction::Create(args) => {
