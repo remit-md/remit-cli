@@ -25,9 +25,13 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
-    /// Use testnet (Base Sepolia) instead of mainnet
+    /// Use testnet (Base Sepolia)
     #[arg(long, global = true)]
     testnet: bool,
+
+    /// Use mainnet (Base). Required for fund-moving commands when not set in config.
+    #[arg(long, global = true, conflicts_with = "testnet")]
+    mainnet: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -101,20 +105,30 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // Load config — output_format from config applies if --json not passed on CLI.
-    let cfg = config::load().unwrap_or_default();
+    // Load config — propagate parse errors (only default when config file is absent).
+    let cfg = config::load()?;
     let json = cli.json
         || cfg
             .output_format
             .as_deref()
             .map(|f| f == "json")
             .unwrap_or(false);
-    let testnet = cli.testnet
-        || cfg
-            .network
-            .as_deref()
-            .map(|n| n == "testnet")
-            .unwrap_or(false);
+    // Network: explicit flags > config > default to testnet (safe direction)
+    let testnet = if cli.mainnet {
+        false
+    } else if cli.testnet {
+        true
+    } else {
+        let config_network = cfg.network.as_deref().unwrap_or("");
+        match config_network {
+            "mainnet" => false,
+            "testnet" => true,
+            _ => {
+                eprintln!("warning: no network specified, defaulting to testnet. Use --mainnet for mainnet.");
+                true
+            }
+        }
+    };
 
     let ctx = commands::Context { json, testnet };
 

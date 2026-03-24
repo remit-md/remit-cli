@@ -17,7 +17,7 @@ pub struct WithdrawArgs {
 }
 
 pub async fn run(args: WithdrawArgs, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
     let resp = client
         .link_withdraw(args.amount.as_deref(), args.to.as_deref())
         .await?;

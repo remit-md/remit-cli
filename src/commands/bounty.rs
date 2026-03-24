@@ -53,7 +53,7 @@ pub struct BountyListArgs {
 }
 
 pub async fn run(action: BountyAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
 
     match action {
         BountyAction::Post(args) => {

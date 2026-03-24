@@ -40,7 +40,7 @@ pub async fn run(args: MintArgs, ctx: Context) -> Result<()> {
         return Err(anyhow!("Amount must not exceed 2500 USDC per request"));
     }
 
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
     let resp = client.mint(&addr, amount).await?;
 
     if ctx.json {

@@ -71,7 +71,7 @@ pub struct TabListArgs {
 }
 
 pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
 
     match action {
         TabAction::Open(args) => {

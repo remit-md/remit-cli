@@ -25,22 +25,18 @@ pub struct RemitClient {
 }
 
 impl RemitClient {
-    pub fn new(testnet: bool) -> Self {
+    pub async fn new(testnet: bool) -> Self {
         let http = Client::builder()
             .user_agent(concat!("remit-cli/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("failed to build HTTP client");
 
-        // Load user config — network and api_base can override defaults.
-        let cfg = crate::config::load().unwrap_or_default();
+        // Load user config — propagate parse errors (default only when file absent).
+        let cfg = crate::config::load()
+            .expect("failed to load config.toml — fix or delete ~/.remit/config.toml");
 
-        // Determine network: CLI flag wins, then config, then default (mainnet).
-        let is_testnet = testnet
-            || cfg
-                .network
-                .as_deref()
-                .map(|n| n == "testnet")
-                .unwrap_or(false);
+        // Determine network: CLI testnet flag already resolved in main.
+        let is_testnet = testnet;
 
         // Determine API base: env var wins, then config, then network default.
         let base = std::env::var("REMITMD_API_URL").unwrap_or_else(|_| {
@@ -49,11 +45,28 @@ impl RemitClient {
                 .unwrap_or_else(|| (if is_testnet { TESTNET_API } else { MAINNET_API }).to_string())
         });
 
-        Self {
-            http,
-            base,
-            chain: ChainConfig::for_network(is_testnet),
+        let mut chain = ChainConfig::for_network(is_testnet);
+
+        // Try to fetch current router from /contracts (falls back to hardcoded with warning)
+        if std::env::var("REMITMD_ROUTER").is_err() {
+            let contracts_url = format!("{}/contracts", base);
+            match http.get(&contracts_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(data) = resp.json::<ContractsResponse>().await {
+                        if !data.router.is_empty() {
+                            chain.router = data.router;
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!(
+                        "warning: could not fetch /contracts — using hardcoded router address"
+                    );
+                }
+            }
         }
+
+        Self { http, base, chain }
     }
 
     fn url(&self, path: &str) -> String {

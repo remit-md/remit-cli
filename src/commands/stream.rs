@@ -39,7 +39,7 @@ pub struct StreamListArgs {
 }
 
 pub async fn run(action: StreamAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet);
+    let client = RemitClient::new(ctx.testnet).await;
 
     match action {
         StreamAction::Open(args) => {
