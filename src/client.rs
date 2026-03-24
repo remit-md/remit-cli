@@ -354,7 +354,7 @@ impl RemitClient {
         let invoice_id = format!("cli-{}", hex::encode(rand::thread_rng().gen::<[u8; 8]>()));
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
+            .map_err(|_| anyhow::anyhow!("system clock error: time before UNIX epoch"))?
             .as_secs();
         let expiry = timeout_secs
             .map(|s| now as i64 + s)

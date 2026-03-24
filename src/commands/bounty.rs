@@ -60,7 +60,7 @@ pub async fn run(action: BountyAction, ctx: Context) -> Result<()> {
             super::validate_positive_amount(&args.amount, "amount")?;
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
+                .map_err(|_| anyhow::anyhow!("system clock error: time before UNIX epoch"))?
                 .as_secs();
             let deadline = now as i64 + args.expiry as i64;
             let permit_sig = permit::auto_permit(&client, &args.amount, "bounty").await?;
