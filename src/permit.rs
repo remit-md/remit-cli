@@ -31,13 +31,17 @@ const MAINNET_RPC_URL: &str = "https://mainnet.base.org";
 const TESTNET_RPC_URL: &str = "https://sepolia.base.org";
 
 /// Return the RPC URL for the given chain ID, respecting `REMITMD_RPC_URL` override.
-fn rpc_url_for_chain(chain_id: u64) -> String {
+fn rpc_url_for_chain(chain_id: u64) -> Result<String> {
     if let Ok(url) = std::env::var("REMITMD_RPC_URL") {
-        return url;
+        return Ok(url);
     }
     match chain_id {
-        8453 => MAINNET_RPC_URL.to_string(),
-        _ => TESTNET_RPC_URL.to_string(),
+        8453 => Ok(MAINNET_RPC_URL.to_string()),
+        84532 => Ok(TESTNET_RPC_URL.to_string()),
+        _ => Err(anyhow!(
+            "Unknown chain_id {chain_id}. Supported: 8453 (Base), 84532 (Base Sepolia). \
+             Set REMITMD_RPC_URL for custom chains."
+        )),
     }
 }
 
@@ -48,7 +52,7 @@ pub async fn fetch_usdc_nonce(owner: &str, usdc_address: &str, chain_id: u64) ->
     let padded = format!("{:0>64}", padded);
     let data = format!("0x7ecebe00{padded}");
 
-    let rpc_url = rpc_url_for_chain(chain_id);
+    let rpc_url = rpc_url_for_chain(chain_id)?;
     let client = reqwest::Client::new();
     let resp = client
         .post(&rpc_url)
@@ -71,8 +75,12 @@ pub async fn fetch_usdc_nonce(owner: &str, usdc_address: &str, chain_id: u64) ->
         return Err(anyhow!("RPC nonces() error: {err}"));
     }
 
-    let hex_result = json["result"].as_str().unwrap_or("0x0");
-    Ok(u64::from_str_radix(hex_result.trim_start_matches("0x"), 16).unwrap_or(0))
+    let hex_result = json["result"]
+        .as_str()
+        .ok_or_else(|| anyhow!("RPC returned null result for nonce query — USDC contract may not exist at {usdc_address}"))?;
+    let nonce = u64::from_str_radix(hex_result.trim_start_matches("0x"), 16)
+        .map_err(|e| anyhow!("Failed to parse nonce hex '{hex_result}': {e}"))?;
+    Ok(nonce)
 }
 
 // ── EIP-712 permit signing ──────────────────────────────────────────────────
@@ -331,12 +339,18 @@ mod tests {
     fn test_rpc_url_for_chain_mainnet() {
         // Without env var override, mainnet should use base.org
         std::env::remove_var("REMITMD_RPC_URL");
-        assert_eq!(rpc_url_for_chain(8453), MAINNET_RPC_URL);
+        assert_eq!(rpc_url_for_chain(8453).unwrap(), MAINNET_RPC_URL);
     }
 
     #[test]
     fn test_rpc_url_for_chain_testnet() {
         std::env::remove_var("REMITMD_RPC_URL");
-        assert_eq!(rpc_url_for_chain(84532), TESTNET_RPC_URL);
+        assert_eq!(rpc_url_for_chain(84532).unwrap(), TESTNET_RPC_URL);
+    }
+
+    #[test]
+    fn test_rpc_url_for_chain_unknown_errors() {
+        std::env::remove_var("REMITMD_RPC_URL");
+        assert!(rpc_url_for_chain(12345).is_err());
     }
 }
