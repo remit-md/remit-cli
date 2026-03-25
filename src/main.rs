@@ -9,6 +9,7 @@ mod commands;
 mod completions;
 mod config;
 mod output;
+mod ows;
 mod permit;
 
 /// Remit — USDC payment protocol CLI for AI agents
@@ -90,6 +91,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::a2a::A2AAction,
     },
+    /// OWS wallet operations (list, fund, set-policy)
+    Wallet {
+        #[command(subcommand)]
+        action: commands::wallet::WalletAction,
+    },
     /// Webhook operations (create, list, delete)
     Webhook {
         #[command(subcommand)]
@@ -148,6 +154,7 @@ async fn main() -> Result<()> {
         Commands::Init(args) => commands::init::run(args, ctx).await,
         Commands::Config { action } => commands::config_cmd::run(action, ctx).await,
         Commands::A2A { action } => commands::a2a::run(action, ctx).await,
+        Commands::Wallet { action } => commands::wallet::run(action, ctx).await,
         Commands::Webhook { action } => commands::webhook::run(action, ctx).await,
         Commands::Completions(args) => {
             completions::run(args, &mut Cli::command());

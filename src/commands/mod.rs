@@ -12,6 +12,7 @@ pub mod pay;
 pub mod status;
 pub mod stream;
 pub mod tab;
+pub mod wallet;
 pub mod webhook;
 pub mod withdraw;
 
