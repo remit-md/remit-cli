@@ -34,7 +34,7 @@ impl ChainConfig {
     pub fn mainnet() -> Self {
         Self {
             chain_id: 8453,
-            router: std::env::var("REMITMD_ROUTER")
+            router: std::env::var("REMITMD_ROUTER_ADDRESS")
                 .unwrap_or_else(|_| "0xAf2e211BC585D3Ab37e9BD546Fb25747a09254D2".to_string()),
         }
     }
@@ -43,7 +43,7 @@ impl ChainConfig {
     pub fn testnet() -> Self {
         Self {
             chain_id: 84532,
-            router: std::env::var("REMITMD_ROUTER")
+            router: std::env::var("REMITMD_ROUTER_ADDRESS")
                 .unwrap_or_else(|_| "0x3120f396ff6a9afc5a9d92e28796082f1429e024".to_string()),
         }
     }
