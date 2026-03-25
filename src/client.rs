@@ -22,6 +22,7 @@ pub struct RemitClient {
     http: Client,
     base: String,
     chain: ChainConfig,
+    sign_path_prefix: String,
 }
 
 impl RemitClient {
@@ -48,7 +49,7 @@ impl RemitClient {
         let mut chain = ChainConfig::for_network(is_testnet);
 
         // Try to fetch current router from /contracts (falls back to hardcoded with warning)
-        if std::env::var("REMITMD_ROUTER").is_err() {
+        if std::env::var("REMITMD_ROUTER_ADDRESS").is_err() {
             let contracts_url = format!("{}/contracts", base);
             match http.get(&contracts_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
@@ -66,7 +67,16 @@ impl RemitClient {
             }
         }
 
-        Self { http, base, chain }
+        let sign_path_prefix = reqwest::Url::parse(&base)
+            .map(|u| u.path().trim_end_matches('/').to_string())
+            .unwrap_or_default();
+
+        Self {
+            http,
+            base,
+            chain,
+            sign_path_prefix,
+        }
     }
 
     fn url(&self, path: &str) -> String {
@@ -80,9 +90,11 @@ impl RemitClient {
         path: &str,
         body: Option<serde_json::Value>,
     ) -> Result<T> {
+        let path_only = path.split('?').next().unwrap_or(path);
+        let sign_path = format!("{}{}", self.sign_path_prefix, path_only);
         let auth = build_auth_headers(
             method.as_str(),
-            path,
+            &sign_path,
             self.chain.chain_id,
             &self.chain.router,
         )
@@ -130,8 +142,15 @@ impl RemitClient {
     }
 
     async fn delete_req(&self, path: &str) -> Result<()> {
-        let auth = build_auth_headers("DELETE", path, self.chain.chain_id, &self.chain.router)
-            .context("failed to build auth headers")?;
+        let path_only = path.split('?').next().unwrap_or(path);
+        let sign_path = format!("{}{}", self.sign_path_prefix, path_only);
+        let auth = build_auth_headers(
+            "DELETE",
+            &sign_path,
+            self.chain.chain_id,
+            &self.chain.router,
+        )
+        .context("failed to build auth headers")?;
 
         let mut req = self.http.request(Method::DELETE, self.url(path));
         for (k, v) in &auth {
