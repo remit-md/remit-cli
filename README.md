@@ -47,11 +47,29 @@ cargo install --path .
 
 ## Setup
 
-```bash
-# Generate a new keypair
-remit init
+### With OWS (recommended)
 
-# Or use an existing private key
+[OWS](https://openwallet.sh) encrypts keys locally and evaluates spending policies before every signature. `remit init` handles the full setup:
+
+```bash
+remit init
+```
+
+This creates an OWS wallet (`remit-{hostname}`), a Base chain-lock policy, and an API key. It prints your wallet address and MCP config — set `OWS_API_KEY` in your environment.
+
+```bash
+# With options
+remit init --name my-agent --chain base-sepolia
+
+# Add spending limits
+remit wallet set-policy --max-tx 500 --daily-limit 5000
+```
+
+### With a raw private key (legacy)
+
+```bash
+remit init --legacy --write-env   # generates key, saves to .env
+# or
 export REMITMD_KEY=0x<your-private-key>
 ```
 
@@ -62,7 +80,7 @@ remit status                         # Wallet info + balance
 remit pay 0xRecipient 10.00          # Send 10 USDC
 remit tab open 0xCounterparty 100    # Open a tab with 100 USDC limit
 remit tab charge <tab-id> 5.00       # Charge 5 USDC to the tab
-remit fund                           # Get a link to fund your wallet
+remit wallet fund                    # Open fund link in browser
 remit --testnet mint 100             # Mint 100 testnet USDC
 ```
 
@@ -70,7 +88,10 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 
 | Command | Description |
 |---------|-------------|
-| `remit init` | Generate keypair and print to stdout (or `--write-env` to save to `.env`) |
+| `remit init` | Create OWS wallet + policy + API key (or `--legacy` for raw key) |
+| `remit wallet list` | List all OWS wallets |
+| `remit wallet fund` | Open fund link in browser |
+| `remit wallet set-policy` | Configure spending limits |
 | `remit status` | Wallet status and balance |
 | `remit balance` | USDC balance |
 | `remit pay <to> <amount>` | One-time payment |
@@ -99,6 +120,30 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 | `--json` | Machine-readable JSON output |
 | `--testnet` | Use Base Sepolia testnet |
 
+## `init` Flags
+
+| Flag | Description |
+|------|-------------|
+| `--name <NAME>` | Wallet name (default: `remit-{hostname}`) |
+| `--chain <CHAIN>` | `base` or `base-sepolia` (default: `base`) |
+| `--legacy` | Skip OWS, generate a raw private key instead |
+| `--write-env` | (Legacy only) Write key to `.env` in current directory |
+
+## `wallet set-policy` Flags
+
+| Flag | Description |
+|------|-------------|
+| `--chain <CHAIN>` | `base` or `base-sepolia` (default: `base`) |
+| `--max-tx <USDC>` | Per-transaction spending cap in dollars |
+| `--daily-limit <USDC>` | Daily spending cap in dollars |
+
+## `wallet fund` Flags
+
+| Flag | Description |
+|------|-------------|
+| `--wallet <NAME>` | Wallet name or ID (default: `OWS_WALLET_ID` env var) |
+| `--amount <USDC>` | Pre-fill fund amount |
+
 ## `pay` Flags
 
 | Flag | Description |
@@ -108,15 +153,25 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 
 ## Auth
 
-Set your private key via environment variable or `.env` file:
+### OWS (recommended)
+
+```bash
+remit init                            # one-time setup
+export OWS_WALLET_ID=remit-my-agent   # wallet name from init
+export OWS_API_KEY=<token>            # shown once by init
+```
+
+Keys live in `~/.ows/wallets/` (AES-256-GCM encrypted). Never appear in env vars.
+
+### Raw key (legacy)
 
 ```bash
 export REMITMD_KEY=0x<your-private-key>
 ```
 
-Or run `remit init` to generate a fresh keypair (prints to stdout). Use `remit init --write-env` to save it to `.env` in the current directory.
+Or `remit init --legacy --write-env` to generate and save to `.env`.
 
-**Never commit your private key to git.**
+**Never commit private keys to git.**
 
 ## Shell Completions
 
