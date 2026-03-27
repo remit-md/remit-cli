@@ -7,9 +7,8 @@ use crate::ows;
 
 /// Initialize a Remit agent wallet.
 ///
-/// Creates an OWS wallet with a chain-locked policy and API key.
-/// If OWS is not installed, installs it via npm first.
-/// Falls back to raw keypair generation with --legacy flag.
+/// Default: creates a local signer wallet (encrypted key + bearer token).
+/// Use --ows for OWS wallet, --legacy for raw keypair.
 #[derive(Args)]
 pub struct InitArgs {
     /// Wallet name (default: remit-{hostname})
@@ -24,8 +23,12 @@ pub struct InitArgs {
     #[arg(long)]
     pub write_env: bool,
 
-    /// Use legacy raw keypair instead of OWS
-    #[arg(long)]
+    /// Use OWS (Open Wallet Standard) instead of local signer
+    #[arg(long, conflicts_with = "legacy")]
+    pub ows: bool,
+
+    /// Use legacy raw keypair instead of local signer
+    #[arg(long, conflicts_with = "ows")]
     pub legacy: bool,
 }
 
@@ -33,8 +36,26 @@ pub async fn run(args: InitArgs, ctx: commands::Context) -> Result<()> {
     if args.legacy {
         return run_legacy(args, ctx).await;
     }
+    if args.ows {
+        return run_ows(args, ctx).await;
+    }
 
-    run_ows(args, ctx).await
+    // Default: local signer
+    run_signer(args, ctx).await
+}
+
+/// Default init: local signer (V24).
+async fn run_signer(args: InitArgs, ctx: commands::Context) -> Result<()> {
+    // Delegate to `remit signer init` with the same args
+    let signer_args = crate::commands::signer::SignerInitArgs {
+        name: args.name,
+        chain: args.chain,
+    };
+    crate::commands::signer::run(
+        crate::commands::signer::SignerAction::Init(signer_args),
+        ctx,
+    )
+    .await
 }
 
 async fn run_ows(args: InitArgs, ctx: commands::Context) -> Result<()> {
@@ -53,7 +74,7 @@ async fn run_ows(args: InitArgs, ctx: commands::Context) -> Result<()> {
         if !ows::is_ows_available() {
             return Err(anyhow::anyhow!(
                 "OWS installation failed. Install manually: npm install -g @open-wallet-standard/core\n\
-                 Or use --legacy for a raw keypair."
+                 Or use `remit init` (without --ows) for the local signer."
             ));
         }
         output::success("OWS installed");
@@ -113,7 +134,7 @@ async fn run_ows(args: InitArgs, ctx: commands::Context) -> Result<()> {
     Ok(())
 }
 
-/// Legacy init: generate a raw keypair (no OWS).
+/// Legacy init: generate a raw keypair (no OWS, no signer).
 async fn run_legacy(args: InitArgs, ctx: commands::Context) -> Result<()> {
     use alloy::signers::local::PrivateKeySigner;
     use rand::rngs::OsRng;
@@ -183,7 +204,7 @@ async fn run_legacy(args: InitArgs, ctx: commands::Context) -> Result<()> {
             println!("   Or run with --write-env to write it to .env automatically.");
         }
         println!();
-        println!("   For better security, use `remit init` without --legacy to use OWS.");
+        println!("   For better security, use `remit init` (default) for the local signer.");
     }
 
     Ok(())
