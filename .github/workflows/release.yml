@@ -19,23 +19,23 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             bin: remit
-            artifact: remit-linux-x86_64
+            archive: tar.gz
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             bin: remit
-            artifact: remit-linux-aarch64
+            archive: tar.gz
           - target: x86_64-apple-darwin
             os: macos-latest
             bin: remit
-            artifact: remit-macos-x86_64
+            archive: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
             bin: remit
-            artifact: remit-macos-aarch64
+            archive: tar.gz
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             bin: remit.exe
-            artifact: remit-windows-x86_64.exe
+            archive: zip
 
     steps:
       - uses: actions/checkout@v4
@@ -69,16 +69,24 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
+      - name: Package archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
-          mv target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact }}
+          tar czf remit-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release ${{ matrix.bin }}
+
+      - name: Package archive (zip)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../remit-${{ matrix.target }}.zip ${{ matrix.bin }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          name: remit-${{ matrix.target }}
+          path: remit-${{ matrix.target }}.${{ matrix.archive }}
 
   publish-crate:
     name: Publish to crates.io
