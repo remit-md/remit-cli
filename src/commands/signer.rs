@@ -135,7 +135,7 @@ async fn run_init(args: SignerInitArgs, ctx: crate::commands::Context) -> Result
         ]);
         eprintln!();
         eprintln!("Set your password for non-interactive signing:");
-        eprintln!("  export REMIT_KEY_PASSWORD=<your-password>");
+        eprintln!("{}", crate::platform::password_hint());
     }
 
     Ok(())
@@ -178,7 +178,7 @@ async fn run_import(args: SignerImportArgs, ctx: crate::commands::Context) -> Re
         ]);
         eprintln!();
         eprintln!("Set your password for non-interactive signing:");
-        eprintln!("  export REMIT_KEY_PASSWORD=<your-password>");
+        eprintln!("{}", crate::platform::password_hint());
     }
 
     Ok(())
@@ -271,7 +271,7 @@ async fn run_migrate(args: SignerMigrateArgs) -> Result<()> {
     eprintln!("  Keystore: {}", keystore_path.display());
     eprintln!();
     eprintln!("Set your password for non-interactive signing:");
-    eprintln!("  export REMIT_KEY_PASSWORD=<your-password>");
+    eprintln!("{}", crate::platform::password_hint());
 
     Ok(())
 }

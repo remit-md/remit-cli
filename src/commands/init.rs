@@ -195,7 +195,10 @@ async fn run_legacy(args: InitArgs, ctx: commands::Context) -> Result<()> {
         println!();
         println!("Back up your private key. It cannot be recovered if lost.");
         println!("   Set it in your environment:");
-        println!("   export REMITMD_KEY={private_key}");
+        println!(
+            "{}",
+            crate::platform::env_var_hint("REMITMD_KEY", &private_key)
+        );
         if !args.write_env {
             println!();
             println!("   Or run with --write-env to write it to .env automatically.");

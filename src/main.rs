@@ -11,6 +11,7 @@ mod config;
 mod output;
 mod ows;
 mod permit;
+mod platform;
 mod signer;
 
 /// Remit — USDC payment protocol CLI for AI agents
