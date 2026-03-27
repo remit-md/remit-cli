@@ -3451,6 +3451,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 name = "remit-cli"
 version = "0.3.0"
 dependencies = [
+ "aes-gcm",
  "alloy",
  "anyhow",
  "chrono",
@@ -3465,14 +3466,18 @@ dependencies = [
  "ows-lib",
  "rand 0.8.5",
  "reqwest",
+ "scrypt",
  "serde",
  "serde_json",
+ "sha2",
  "sha3",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
  "toml",
  "url",
+ "zeroize",
 ]
 
 [[package]]
