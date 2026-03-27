@@ -25,7 +25,7 @@ pub async fn run(args: MintArgs, ctx: Context) -> Result<()> {
 
     let addr = match args.address {
         Some(a) => a,
-        None => wallet_address()?,
+        None => wallet_address().await?,
     };
 
     let amount: f64 = args

@@ -169,7 +169,7 @@ async fn pay(args: A2APayArgs, ctx: Context) -> Result<()> {
 
     // Sign and send.
     let chain = ChainConfig::for_network(ctx.testnet);
-    let auth_headers = build_auth_headers("POST", &path, chain.chain_id, &chain.router)?;
+    let auth_headers = build_auth_headers("POST", &path, chain.chain_id, &chain.router).await?;
 
     let http = reqwest::Client::builder()
         .user_agent(concat!("remit-cli/", env!("CARGO_PKG_VERSION")))

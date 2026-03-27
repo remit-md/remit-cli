@@ -17,7 +17,7 @@ pub struct BalanceArgs {
 pub async fn run(args: BalanceArgs, ctx: Context) -> Result<()> {
     let addr = match args.address {
         Some(a) => a,
-        None => wallet_address()?,
+        None => wallet_address().await?,
     };
 
     let client = RemitClient::new(ctx.testnet).await;

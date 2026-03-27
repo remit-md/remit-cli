@@ -3,6 +3,10 @@
 //! Signs a gasless approval that the server submits on-chain before the
 //! payment contract calls `transferFrom`. This avoids a separate `approve()`
 //! transaction and is the primary mechanism for agent-wallet payments.
+//!
+//! Supports two signing backends (resolved via `crate::auth`):
+//!   1. Local — REMITMD_KEY private key, signs in-process
+//!   2. HTTP  — REMIT_SIGNER_URL signer server, sends only the 32-byte hash
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -10,9 +14,6 @@ use sha3::{Digest, Keccak256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::client::RemitClient;
-
-use alloy::signers::local::PrivateKeySigner;
-use alloy::signers::SignerSync;
 
 // ── Permit result ───────────────────────────────────────────────────────────
 
@@ -100,43 +101,20 @@ fn parse_usdc_to_micro(amount: &str) -> Result<u64> {
     }
 }
 
-/// Sign an EIP-2612 USDC permit.
+/// Compute the EIP-712 permit hash for USDC.
 ///
-/// - `client`: RemitClient for API-based nonce fetch
-/// - `private_key`: hex string (with or without 0x prefix)
-/// - `spender`: the contract that will call transferFrom (e.g. Router)
-/// - `amount_usdc`: amount in USDC as string (e.g. "10.50")
-/// - `chain_id`: chain ID (84532 for Base Sepolia)
-/// - `usdc_address`: USDC contract address
-pub async fn sign_usdc_permit(
-    client: &RemitClient,
-    private_key: &str,
+/// This is always computed locally — only the resulting 32-byte hash is
+/// ever sent to a remote signer. The signer never sees amounts, addresses,
+/// or any permit details.
+fn compute_permit_hash(
+    owner: &str,
     spender: &str,
-    amount_usdc: &str,
+    value: u64,
+    nonce: u64,
+    deadline: u64,
     chain_id: u64,
     usdc_address: &str,
-) -> Result<PermitSignature> {
-    let key_hex = private_key.trim_start_matches("0x");
-    let key_bytes = hex::decode(key_hex).map_err(|e| anyhow!("invalid key hex: {e}"))?;
-    let key_arr: [u8; 32] = key_bytes
-        .try_into()
-        .map_err(|_| anyhow!("key must be 32 bytes"))?;
-    let signer =
-        PrivateKeySigner::from_bytes(&key_arr.into()).map_err(|e| anyhow!("invalid key: {e}"))?;
-    let owner = format!("{:#x}", signer.address());
-
-    // Value in USDC smallest unit (6 decimals) — integer math, no floats
-    let value = parse_usdc_to_micro(amount_usdc)?;
-
-    // Fetch nonce from API
-    let nonce = fetch_permit_nonce(client, &owner).await?;
-
-    // Deadline: 1 hour from now
-    let deadline = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
-        .map_err(|_| anyhow!("clock error"))?;
-
+) -> Result<[u8; 32]> {
     // EIP-712 domain for USDC: name="USD Coin", version="2"
     let domain_typehash = keccak(
         b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
@@ -158,7 +136,7 @@ pub async fn sign_usdc_permit(
     let permit_typehash = keccak(
         b"Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)",
     );
-    let owner_slot = abi_address(&owner)?;
+    let owner_slot = abi_address(owner)?;
     let spender_slot = abi_address(spender)?;
     let value_slot = abi_uint256(value);
     let nonce_slot = abi_uint256(nonce);
@@ -179,31 +157,17 @@ pub async fn sign_usdc_permit(
     final_buf.push(0x01u8);
     final_buf.extend_from_slice(&domain_separator);
     final_buf.extend_from_slice(&struct_hash);
-    let hash = keccak(&final_buf);
 
-    // Sign
-    let sig = signer
-        .sign_hash_sync(&hash.into())
-        .map_err(|e| anyhow!("permit signing failed: {e}"))?;
-    let sig_bytes = sig.as_bytes();
-
-    // Split: first 32 bytes = r, next 32 = s, last byte = v
-    let r = format!("0x{}", hex::encode(&sig_bytes[..32]));
-    let s = format!("0x{}", hex::encode(&sig_bytes[32..64]));
-    let v = sig_bytes[64];
-
-    Ok(PermitSignature {
-        value,
-        deadline,
-        v,
-        r,
-        s,
-    })
+    Ok(keccak(&final_buf))
 }
 
 // ── Auto-permit helper for commands ─────────────────────────────────────────
 
 /// Sign a USDC permit for the given spender contract.
+///
+/// Uses the resolved signing backend (local key or HTTP signer server).
+/// The EIP-712 permit hash is always computed locally — only the 32-byte
+/// hash is sent to a remote signer if using the HTTP backend.
 ///
 /// `spender_field` is the contract name in the /contracts response (e.g., "router", "escrow").
 /// `amount_usdc` is the USDC amount as a string (e.g., "10.50").
@@ -213,7 +177,6 @@ pub async fn auto_permit(
     amount_usdc: &str,
     spender_field: &str,
 ) -> Result<PermitSignature> {
-    let key = crate::auth::load_private_key()?;
     let contracts = client.get_contracts().await.context("fetch contracts")?;
 
     let spender = match spender_field {
@@ -246,15 +209,47 @@ pub async fn auto_permit(
         .as_deref()
         .ok_or_else(|| anyhow!("server did not return USDC address"))?;
 
-    sign_usdc_permit(
-        client,
-        &key,
+    // Get the owner address from the signing backend (local key or HTTP signer)
+    let owner = crate::auth::wallet_address().await?;
+
+    // Value in USDC smallest unit (6 decimals)
+    let value = parse_usdc_to_micro(amount_usdc)?;
+
+    // Fetch permit nonce from API
+    let nonce = fetch_permit_nonce(client, &owner).await?;
+
+    // Deadline: 1 hour from now
+    let deadline = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .map_err(|_| anyhow!("clock error"))?;
+
+    // Compute EIP-712 hash locally — signer only sees the opaque 32-byte digest
+    let hash = compute_permit_hash(
+        &owner,
         &spender,
-        amount_usdc,
+        value,
+        nonce,
+        deadline,
         contracts.chain_id,
         usdc,
-    )
-    .await
+    )?;
+
+    // Sign via the resolved backend (local or HTTP)
+    let (sig_bytes, _addr) = crate::auth::sign_digest(&hash).await?;
+
+    // Split: first 32 bytes = r, next 32 = s, last byte = v
+    let r = format!("0x{}", hex::encode(&sig_bytes[..32]));
+    let s = format!("0x{}", hex::encode(&sig_bytes[32..64]));
+    let v = sig_bytes[64];
+
+    Ok(PermitSignature {
+        value,
+        deadline,
+        v,
+        r,
+        s,
+    })
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -298,5 +293,34 @@ mod tests {
         assert!(parse_usdc_to_micro("abc").is_err());
         assert!(parse_usdc_to_micro("").is_err());
         assert!(parse_usdc_to_micro("1.2.3").is_err());
+    }
+
+    #[test]
+    fn test_compute_permit_hash_deterministic() {
+        // Same inputs should always produce the same hash
+        let hash1 = compute_permit_hash(
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            10_000_000,
+            0,
+            1741400000,
+            84532,
+            "0x2d846325766921935f37d5b4478196d3ef93707c",
+        )
+        .unwrap();
+
+        let hash2 = compute_permit_hash(
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            10_000_000,
+            0,
+            1741400000,
+            84532,
+            "0x2d846325766921935f37d5b4478196d3ef93707c",
+        )
+        .unwrap();
+
+        assert_eq!(hash1, hash2, "permit hash must be deterministic");
+        assert_ne!(hash1, [0u8; 32], "permit hash must not be zero");
     }
 }

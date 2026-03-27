@@ -98,6 +98,7 @@ impl RemitClient {
             self.chain.chain_id,
             &self.chain.router,
         )
+        .await
         .context("failed to build auth headers")?;
 
         let mut req: RequestBuilder = self.http.request(method, self.url(path));
@@ -150,6 +151,7 @@ impl RemitClient {
             self.chain.chain_id,
             &self.chain.router,
         )
+        .await
         .context("failed to build auth headers")?;
 
         let mut req = self.http.request(Method::DELETE, self.url(path));
