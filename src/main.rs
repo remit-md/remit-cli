@@ -106,7 +106,7 @@ enum Commands {
     Address(commands::address::AddressArgs),
     /// Sign data using the encrypted keystore (stdin → stdout)
     Sign(commands::sign::SignArgs),
-    /// Local signer operations (init, import)
+    /// Local signer operations (init, import, migrate)
     Signer {
         #[command(subcommand)]
         action: commands::signer::SignerAction,

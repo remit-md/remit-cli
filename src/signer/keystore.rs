@@ -241,7 +241,7 @@ pub fn load_file(path: &std::path::Path) -> Result<EncryptedKeyFile> {
 /// Encrypt a private key (arbitrary bytes, must be 32) with AES-256-GCM.
 ///
 /// Derives the encryption key from the passphrase via scrypt.
-fn encrypt_key(private_key: &[u8], passphrase: &str) -> Result<EncryptionParams> {
+pub fn encrypt_key(private_key: &[u8], passphrase: &str) -> Result<EncryptionParams> {
     if private_key.len() != 32 {
         return Err(anyhow!(
             "private key must be exactly 32 bytes, got {}",
