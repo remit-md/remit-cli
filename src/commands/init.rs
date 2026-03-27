@@ -44,13 +44,10 @@ pub async fn run(args: InitArgs, ctx: commands::Context) -> Result<()> {
     run_signer(args, ctx).await
 }
 
-/// Default init: local signer (V24).
+/// Default init: local signer.
 async fn run_signer(args: InitArgs, ctx: commands::Context) -> Result<()> {
     // Delegate to `remit signer init` with the same args
-    let signer_args = crate::commands::signer::SignerInitArgs {
-        name: args.name,
-        chain: args.chain,
-    };
+    let signer_args = crate::commands::signer::SignerInitArgs { name: args.name };
     crate::commands::signer::run(
         crate::commands::signer::SignerAction::Init(signer_args),
         ctx,

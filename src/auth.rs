@@ -1,4 +1,4 @@
-// Functions used by the client module (task 0.3+) and command handlers (task 0.4+).
+// Functions used by the client module and command handlers.
 #![allow(dead_code)]
 
 /// Authentication for the Remit API.
@@ -15,8 +15,8 @@
 ///
 /// Signing backends:
 ///   1. Local — REMITMD_KEY env var (private key, signs in-process)
-///   2. HTTP  — REMIT_SIGNER_URL + REMIT_SIGNER_TOKEN (delegates to signer server)
-use anyhow::{anyhow, Context as _, Result};
+///   2. Keystore — ~/.remit/keys/default.enc + REMIT_KEY_PASSWORD (added in C0.8)
+use anyhow::{anyhow, Result};
 use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
 use std::env;
@@ -64,20 +64,16 @@ impl ChainConfig {
 
 // ── Signing backend ──────────────────────────────────────────────────────────
 
-/// Signing backend — either a local private key or an HTTP signer server.
+/// Signing backend — local private key (keystore backend added in C0.8).
 pub enum SigningBackend {
     /// Local private key (loaded from REMITMD_KEY).
     Local(PrivateKeySigner),
-    /// Remote HTTP signer (REMIT_SIGNER_URL + REMIT_SIGNER_TOKEN).
-    Http { url: String, token: String },
 }
 
 impl std::fmt::Debug for SigningBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Local(_) => write!(f, "SigningBackend::Local(<key>)"),
-            // Never reveal the token in debug output
-            Self::Http { url, .. } => write!(f, "SigningBackend::Http {{ url: {url:?} }}"),
         }
     }
 }
@@ -85,23 +81,10 @@ impl std::fmt::Debug for SigningBackend {
 /// Resolve the signing backend from environment variables.
 ///
 /// Priority:
-///   1. REMIT_SIGNER_URL (requires REMIT_SIGNER_TOKEN) — HTTP signer
-///   2. REMITMD_KEY — local private key
+///   1. REMITMD_KEY — local private key
+///   2. Keystore + REMIT_KEY_PASSWORD (added in C0.8)
 ///   3. Error if neither is set
-///
-/// If REMIT_SIGNER_URL is set but REMIT_SIGNER_TOKEN is missing, this returns
-/// an immediate error — it does NOT fall back to REMITMD_KEY silently.
 pub fn resolve_signer() -> Result<SigningBackend> {
-    if let Ok(url) = env::var("REMIT_SIGNER_URL") {
-        let token = env::var("REMIT_SIGNER_TOKEN").map_err(|_| {
-            anyhow!(
-                "REMIT_SIGNER_URL is set but REMIT_SIGNER_TOKEN is missing.\n\
-                 Both are required when using an HTTP signer."
-            )
-        })?;
-        return Ok(SigningBackend::Http { url, token });
-    }
-
     if let Ok(key_hex) = env::var("REMITMD_KEY") {
         let signer = signer_from_hex(&key_hex)?;
         return Ok(SigningBackend::Local(signer));
@@ -109,9 +92,8 @@ pub fn resolve_signer() -> Result<SigningBackend> {
 
     Err(anyhow!(
         "No signing key configured.\n\
-         Set REMIT_SIGNER_URL + REMIT_SIGNER_TOKEN for an HTTP signer, or\n\
-         Set REMITMD_KEY for a local private key.\n\
-         Run `remit init` to generate a new keypair."
+         Set REMITMD_KEY in your environment or .env file:\n  export REMITMD_KEY=0x<your-private-key>\n\
+         Or run `remit signer init` to create an encrypted wallet."
     ))
 }
 
@@ -138,89 +120,10 @@ pub fn signer_from_hex(key_hex: &str) -> Result<PrivateKeySigner> {
 }
 
 /// Return the wallet address (lowercase, 0x-prefixed).
-///
-/// Uses the HTTP signer's /address endpoint if REMIT_SIGNER_URL is set,
-/// otherwise derives it from REMITMD_KEY.
 pub async fn wallet_address() -> Result<String> {
     match resolve_signer()? {
         SigningBackend::Local(signer) => Ok(format!("{:#x}", signer.address())),
-        SigningBackend::Http { url, token } => http_address(&url, &token).await,
     }
-}
-
-// ── HTTP signer helpers ──────────────────────────────────────────────────────
-
-/// Fetch the signer address from the HTTP signer server.
-async fn http_address(base_url: &str, token: &str) -> Result<String> {
-    let url = format!("{}/address", base_url.trim_end_matches('/'));
-    let client = reqwest::Client::new();
-    let resp = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", token))
-        .send()
-        .await
-        .context("failed to connect to signer server at /address")?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("signer server /address returned {status}: {body}"));
-    }
-
-    #[derive(serde::Deserialize)]
-    struct AddrResp {
-        address: String,
-    }
-
-    let data: AddrResp = resp
-        .json()
-        .await
-        .context("failed to parse signer /address response")?;
-    Ok(data.address)
-}
-
-/// Sign a 32-byte digest via the HTTP signer server.
-///
-/// Returns the raw 65-byte signature (r || s || v).
-async fn http_sign(base_url: &str, token: &str, digest: &[u8; 32]) -> Result<[u8; 65]> {
-    let url = format!("{}/sign/digest", base_url.trim_end_matches('/'));
-    let digest_hex = format!("0x{}", hex::encode(digest));
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", token))
-        .json(&serde_json::json!({ "digest": digest_hex }))
-        .send()
-        .await
-        .context("failed to connect to signer server at /sign/digest")?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!(
-            "signer server /sign/digest returned {status}: {body}"
-        ));
-    }
-
-    #[derive(serde::Deserialize)]
-    struct SigResp {
-        signature: String,
-    }
-
-    let data: SigResp = resp
-        .json()
-        .await
-        .context("failed to parse signer /sign/digest response")?;
-
-    let sig_hex = data.signature.trim_start_matches("0x");
-    let sig_bytes =
-        hex::decode(sig_hex).map_err(|e| anyhow!("signer returned invalid signature hex: {e}"))?;
-    let sig_arr: [u8; 65] = sig_bytes
-        .try_into()
-        .map_err(|_| anyhow!("signer returned signature with wrong length (expected 65 bytes)"))?;
-
-    Ok(sig_arr)
 }
 
 // ── EIP-712 hash ──────────────────────────────────────────────────────────────
@@ -354,12 +257,6 @@ pub async fn build_auth_headers(
             let sig_h = format!("0x{}", hex::encode(sig.as_bytes()));
             (sig_h, addr)
         }
-        SigningBackend::Http { url, token } => {
-            let sig_bytes = http_sign(&url, &token, &hash).await?;
-            let addr = http_address(&url, &token).await?;
-            let sig_h = format!("0x{}", hex::encode(sig_bytes));
-            (sig_h, addr)
-        }
     };
 
     let mut headers = HashMap::new();
@@ -373,7 +270,7 @@ pub async fn build_auth_headers(
 
 /// Sign an arbitrary 32-byte digest using the resolved signing backend.
 ///
-/// Used by permit.rs for EIP-2612 permit signing when an HTTP signer is active.
+/// Used by permit.rs for EIP-2612 permit signing.
 pub async fn sign_digest(digest: &[u8; 32]) -> Result<([u8; 65], String)> {
     match resolve_signer()? {
         SigningBackend::Local(signer) => {
@@ -384,11 +281,6 @@ pub async fn sign_digest(digest: &[u8; 32]) -> Result<([u8; 65], String)> {
             let mut sig_arr = [0u8; 65];
             sig_arr.copy_from_slice(&sig.as_bytes());
             Ok((sig_arr, addr))
-        }
-        SigningBackend::Http { url, token } => {
-            let sig_bytes = http_sign(&url, &token, digest).await?;
-            let addr = http_address(&url, &token).await?;
-            Ok((sig_bytes, addr))
         }
     }
 }
@@ -507,58 +399,21 @@ mod tests {
 
     /// Helper: clear signer-related env vars, returning originals for restore.
     /// Caller MUST hold ENV_MUTEX.
-    fn clear_signer_env() -> (Option<String>, Option<String>, Option<String>) {
-        let url = std::env::var("REMIT_SIGNER_URL").ok();
-        let token = std::env::var("REMIT_SIGNER_TOKEN").ok();
+    fn clear_signer_env() -> Option<String> {
         let key = std::env::var("REMITMD_KEY").ok();
         unsafe {
-            std::env::remove_var("REMIT_SIGNER_URL");
-            std::env::remove_var("REMIT_SIGNER_TOKEN");
             std::env::remove_var("REMITMD_KEY");
         }
-        (url, token, key)
+        key
     }
 
     /// Restore env vars. Caller MUST hold ENV_MUTEX.
-    fn restore_signer_env(saved: (Option<String>, Option<String>, Option<String>)) {
-        let (url, token, key) = saved;
+    fn restore_signer_env(saved: Option<String>) {
         unsafe {
-            if let Some(v) = url {
-                std::env::set_var("REMIT_SIGNER_URL", v);
-            }
-            if let Some(v) = token {
-                std::env::set_var("REMIT_SIGNER_TOKEN", v);
-            }
-            if let Some(v) = key {
+            if let Some(v) = saved {
                 std::env::set_var("REMITMD_KEY", v);
             }
         }
-    }
-
-    #[test]
-    fn test_resolve_signer_http_variant() {
-        let _lock = ENV_MUTEX.lock().unwrap();
-        let saved = clear_signer_env();
-        unsafe {
-            std::env::set_var("REMIT_SIGNER_URL", "http://localhost:9120");
-            std::env::set_var("REMIT_SIGNER_TOKEN", "test-token-abc");
-        }
-
-        let result = resolve_signer();
-        assert!(result.is_ok(), "should resolve Http variant");
-        match result.unwrap() {
-            SigningBackend::Http { url, token } => {
-                assert_eq!(url, "http://localhost:9120");
-                assert_eq!(token, "test-token-abc");
-            }
-            SigningBackend::Local(_) => panic!("expected Http variant, got Local"),
-        }
-
-        unsafe {
-            std::env::remove_var("REMIT_SIGNER_URL");
-            std::env::remove_var("REMIT_SIGNER_TOKEN");
-        }
-        restore_signer_env(saved);
     }
 
     #[test]
@@ -576,7 +431,6 @@ mod tests {
                 let addr = format!("{:#x}", signer.address());
                 assert_eq!(addr, "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
             }
-            SigningBackend::Http { .. } => panic!("expected Local variant, got Http"),
         }
 
         unsafe {
@@ -598,60 +452,6 @@ mod tests {
             "error should mention no signing key: {msg}"
         );
 
-        restore_signer_env(saved);
-    }
-
-    #[test]
-    fn test_resolve_signer_url_without_token_errors() {
-        let _lock = ENV_MUTEX.lock().unwrap();
-        let saved = clear_signer_env();
-        unsafe {
-            std::env::set_var("REMIT_SIGNER_URL", "http://localhost:9120");
-            // REMIT_SIGNER_TOKEN deliberately NOT set
-        }
-
-        let result = resolve_signer();
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("REMIT_SIGNER_TOKEN is missing"),
-            "error should mention missing token: {msg}"
-        );
-        // Token value must never appear in error messages (security)
-        assert!(!msg.contains("Bearer"), "error must not contain 'Bearer'");
-
-        unsafe {
-            std::env::remove_var("REMIT_SIGNER_URL");
-        }
-        restore_signer_env(saved);
-    }
-
-    #[test]
-    fn test_resolve_signer_http_takes_priority_over_local() {
-        let _lock = ENV_MUTEX.lock().unwrap();
-        let saved = clear_signer_env();
-        unsafe {
-            std::env::set_var("REMIT_SIGNER_URL", "http://localhost:9120");
-            std::env::set_var("REMIT_SIGNER_TOKEN", "tok");
-            std::env::set_var("REMITMD_KEY", TEST_PRIVATE_KEY);
-        }
-
-        let result = resolve_signer();
-        assert!(result.is_ok());
-        match result.unwrap() {
-            SigningBackend::Http { url, .. } => {
-                assert_eq!(url, "http://localhost:9120");
-            }
-            SigningBackend::Local(_) => {
-                panic!("expected Http variant to take priority over Local")
-            }
-        }
-
-        unsafe {
-            std::env::remove_var("REMIT_SIGNER_URL");
-            std::env::remove_var("REMIT_SIGNER_TOKEN");
-            std::env::remove_var("REMITMD_KEY");
-        }
         restore_signer_env(saved);
     }
 }

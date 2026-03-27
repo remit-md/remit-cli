@@ -102,7 +102,7 @@ enum Commands {
         #[command(subcommand)]
         action: commands::webhook::WebhookAction,
     },
-    /// Local signer operations (init, start, stop, status, import, token)
+    /// Local signer operations (init, import)
     Signer {
         #[command(subcommand)]
         action: commands::signer::SignerAction,

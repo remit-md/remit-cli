@@ -33,8 +33,6 @@ dirs = "5"
 aes-gcm = "0.10"
 scrypt = "0.11"
 zeroize = { version = "1", features = ["derive"] }
-sha2 = "0.10"
-axum = "0.8"
 toml = "0.8"
 ows-lib = "1.1"
 ows-core = "1.1"
@@ -46,7 +44,6 @@ url = "2"
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"
-tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 opt-level = 3
