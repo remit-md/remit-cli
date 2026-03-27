@@ -26,7 +26,7 @@ use zeroize::Zeroizing;
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const KEY_FILE_VERSION: u32 = 1;
+const KEY_FILE_VERSION: u32 = 2;
 const SCRYPT_LOG_N: u8 = 15; // n = 2^15 = 32768
 const SCRYPT_R: u32 = 8;
 const SCRYPT_P: u32 = 1;
@@ -359,7 +359,7 @@ mod tests {
         let loaded = ks.load("test-key").unwrap();
         assert_eq!(loaded.name, "test-key");
         assert_eq!(loaded.address, address);
-        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.version, 2);
 
         let signer = decrypt(&loaded, passphrase).unwrap();
         assert_eq!(format!("{:#x}", signer.address()), address);
@@ -438,7 +438,7 @@ mod tests {
         let raw = std::fs::read_to_string(ks.key_path("structured")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
-        assert_eq!(parsed["version"], 1);
+        assert_eq!(parsed["version"], 2);
         assert_eq!(parsed["name"], "structured");
         assert!(parsed["address"].as_str().unwrap().starts_with("0x"));
         assert!(parsed["created_at"].as_str().is_some());

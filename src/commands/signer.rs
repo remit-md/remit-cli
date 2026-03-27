@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use clap::Subcommand;
+use std::io::IsTerminal;
 
 use crate::output;
 use crate::signer::keystore;
@@ -36,8 +37,57 @@ pub async fn run(action: SignerAction, ctx: crate::commands::Context) -> Result<
     }
 }
 
+// ── Password acquisition ─────────────────────────────────────────────────
+
+/// Acquire a password for keystore encryption.
+///
+/// Priority:
+///   1. REMIT_KEY_PASSWORD env var (non-interactive, used as-is)
+///   2. Interactive prompt on stderr (twice for confirmation)
+///   3. Error if non-interactive and no env var
+///
+/// SECURITY: Password never appears in CLI arguments (visible in ps aux).
+fn acquire_password_with_confirmation() -> Result<String> {
+    // 1. Check env var
+    if let Ok(password) = std::env::var("REMIT_KEY_PASSWORD") {
+        if password.is_empty() {
+            return Err(anyhow!(
+                "REMIT_KEY_PASSWORD is set but empty. Password must be non-empty."
+            ));
+        }
+        return Ok(password);
+    }
+
+    // 2. Interactive prompt (must be terminal)
+    if !std::io::stderr().is_terminal() {
+        return Err(anyhow!(
+            "No password source available.\n\
+             Set REMIT_KEY_PASSWORD in your environment, or run interactively."
+        ));
+    }
+
+    loop {
+        let password = rpassword::prompt_password("Choose a password: ")
+            .map_err(|e| anyhow!("failed to read password: {e}"))?;
+
+        if password.is_empty() {
+            eprintln!("Password must not be empty. Try again.");
+            continue;
+        }
+
+        let confirm = rpassword::prompt_password("Confirm password: ")
+            .map_err(|e| anyhow!("failed to read password confirmation: {e}"))?;
+
+        if password != confirm {
+            eprintln!("Passwords do not match. Try again.");
+            continue;
+        }
+
+        return Ok(password);
+    }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
-// TODO(V25 C0.3): Rewrite with password-based encryption (not token-based).
 
 async fn run_init(args: SignerInitArgs, ctx: crate::commands::Context) -> Result<()> {
     let ks = keystore::Keystore::open()?;
@@ -51,20 +101,31 @@ async fn run_init(args: SignerInitArgs, ctx: crate::commands::Context) -> Result
         ));
     }
 
-    // Temporary: generate with a placeholder passphrase.
-    // C0.3 will replace this with password-based encryption.
-    let address = ks.generate(&wallet_name, "temporary-passphrase")?;
+    let password = acquire_password_with_confirmation()?;
+    let address = ks.generate(&wallet_name, &password)?;
 
     if ctx.json {
         output::print_json(&serde_json::json!({
             "wallet": wallet_name,
             "address": address,
+            "keystore": keystore::Keystore::open()?.key_path(&wallet_name).display().to_string(),
         }));
     } else {
-        output::print_kv(&[("Wallet", &wallet_name), ("Address", &address)]);
         eprintln!();
-        eprintln!("NOTE: This wallet uses a temporary passphrase.");
-        eprintln!("V25 password-based init is not yet implemented.");
+        output::print_kv(&[
+            ("Wallet", &wallet_name),
+            ("Address", &address),
+            (
+                "Keystore",
+                &keystore::Keystore::open()?
+                    .key_path(&wallet_name)
+                    .display()
+                    .to_string(),
+            ),
+        ]);
+        eprintln!();
+        eprintln!("Set your password for non-interactive signing:");
+        eprintln!("  export REMIT_KEY_PASSWORD=<your-password>");
     }
 
     Ok(())
