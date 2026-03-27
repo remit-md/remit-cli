@@ -7,4 +7,5 @@
 pub mod eip712;
 pub mod keystore;
 pub mod policy;
+pub mod server;
 pub mod tokens;
