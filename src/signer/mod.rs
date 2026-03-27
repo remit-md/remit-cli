@@ -7,6 +7,8 @@
 
 pub mod daemon;
 pub mod eip712;
+#[cfg(test)]
+mod integration_tests;
 pub mod keystore;
 pub mod policy;
 pub mod server;
