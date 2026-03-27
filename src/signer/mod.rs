@@ -4,6 +4,7 @@
 //! and an HTTP server for remote signing on localhost.
 #![allow(dead_code)]
 
+pub mod daemon;
 pub mod eip712;
 pub mod keystore;
 pub mod policy;
