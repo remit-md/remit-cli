@@ -6,29 +6,23 @@ Command-line interface for [Remit](https://remit.md) — USDC payments for AI ag
 
 ## Install
 
-### Binary (recommended)
-
-Download from [GitHub Releases](https://github.com/remit-md/remit-cli/releases/latest):
+### Homebrew (macOS / Linux)
 
 ```bash
-# Linux (x86_64)
-curl -L https://github.com/remit-md/remit-cli/releases/latest/download/remit-linux-x86_64 -o remit
-chmod +x remit && sudo mv remit /usr/local/bin/
+brew install remit-md/tap/remit
+```
 
-# Linux (aarch64)
-curl -L https://github.com/remit-md/remit-cli/releases/latest/download/remit-linux-aarch64 -o remit
-chmod +x remit && sudo mv remit /usr/local/bin/
+### Install script (Linux / macOS)
 
-# macOS (Apple Silicon)
-curl -L https://github.com/remit-md/remit-cli/releases/latest/download/remit-macos-aarch64 -o remit
-chmod +x remit && sudo mv remit /usr/local/bin/
+```bash
+curl -fsSL https://remit.md/install.sh | sh
+```
 
-# macOS (Intel)
-curl -L https://github.com/remit-md/remit-cli/releases/latest/download/remit-macos-x86_64 -o remit
-chmod +x remit && sudo mv remit /usr/local/bin/
+### Scoop (Windows)
 
-# Windows (PowerShell)
-irm https://github.com/remit-md/remit-cli/releases/latest/download/remit-windows-x86_64.exe -OutFile remit.exe
+```powershell
+scoop bucket add remit https://github.com/remit-md/scoop-bucket
+scoop install remit
 ```
 
 ### crates.io
@@ -47,15 +41,13 @@ cargo install --path .
 
 ## Setup
 
-### With local signer (default, recommended)
+### With CLI signer (default, recommended)
 
-The local signer runs a lightweight HTTP signing server on `localhost:7402`. Private keys are AES-256-GCM encrypted at rest. Any SDK or language can sign via HTTP — no FFI, no native dependencies.
+The CLI signer uses an encrypted keystore at `~/.remit/keys/`. Private keys are AES-256-GCM encrypted at rest with scrypt KDF. SDKs call `remit sign` as a subprocess — no HTTP server, no ports, no network.
 
 ```bash
-remit init                        # generates wallet + encrypted key + bearer token
-remit signer start                # starts signing server on localhost:7402
-export REMIT_SIGNER_URL=http://localhost:7402
-export REMIT_SIGNER_TOKEN=<shown by init>
+remit signer init                 # generates wallet + encrypted keystore
+export REMIT_KEY_PASSWORD=your-password
 ```
 
 ### With OWS
@@ -66,14 +58,6 @@ export REMIT_SIGNER_TOKEN=<shown by init>
 remit init --ows                  # creates OWS wallet + policy + API key
 export OWS_WALLET_ID=remit-my-agent
 export OWS_API_KEY=<shown by init>
-```
-
-```bash
-# With options
-remit init --name my-agent --chain base-sepolia
-
-# Add spending limits
-remit wallet set-policy --max-tx 500 --daily-limit 5000
 ```
 
 ### With a raw private key (legacy)
@@ -90,11 +74,11 @@ The CLI supports three wallet modes. It checks them in priority order:
 
 | Priority | Mode | Env Var | Description |
 |----------|------|---------|-------------|
-| 1 | Local signer | `REMIT_SIGNER_URL` | HTTP signing server on localhost. Any language, any sandbox. |
+| 1 | CLI signer | `REMIT_KEY_PASSWORD` | Encrypted keystore. SDKs invoke `remit sign` via subprocess. |
 | 2 | OWS | `OWS_WALLET_ID` | Encrypted local vault with spending policies. Requires OWS binary. |
 | 3 | Raw key | `REMITMD_KEY` | Private key in environment. Simple but less secure. |
 
-If `REMIT_SIGNER_URL` is set, the CLI delegates all signing to the local signer server. Otherwise it falls back to OWS, then raw key.
+If a keystore exists at `~/.remit/keys/default.enc` and `REMIT_KEY_PASSWORD` is set, the CLI signs in-process using the encrypted key. Otherwise it falls back to OWS, then raw key.
 
 ## Quickstart
 
@@ -111,7 +95,14 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 
 | Command | Description |
 |---------|-------------|
-| `remit init` | Create local signer wallet (default), OWS (`--ows`), or raw key (`--legacy`) |
+| `remit init` | Create CLI signer wallet (default), OWS (`--ows`), or raw key (`--legacy`) |
+| `remit signer init` | Generate new wallet + encrypted keystore |
+| `remit signer import --key 0x...` | Import an existing private key into keystore |
+| `remit signer migrate` | Migrate V24 keystore (token-based) to V25 (password-based) |
+| `remit sign --eip712` | Sign EIP-712 typed data from stdin (used by SDKs) |
+| `remit sign --digest` | Sign raw 32-byte digest from stdin (used by SDKs) |
+| `remit address` | Print wallet address from keystore (no password needed) |
+| `remit update` | Self-update to latest version |
 | `remit wallet list` | List all OWS wallets |
 | `remit wallet fund` | Open fund link in browser |
 | `remit wallet set-policy` | Configure spending limits |
@@ -132,14 +123,6 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 | `remit withdraw` | Generate withdraw link |
 | `remit mint <amount>` | Mint testnet USDC (max 2500/hr) |
 | `remit webhook create/list/delete` | Webhook subscriptions |
-| `remit signer init` | Generate new wallet + encrypted key + bearer token |
-| `remit signer start` | Start signing server on localhost:7402 |
-| `remit signer stop` | Stop the signing server |
-| `remit signer status` | Check if signer is running |
-| `remit signer import --key 0x...` | Import an existing private key |
-| `remit signer token create` | Create a new bearer token |
-| `remit signer token list` | List bearer tokens |
-| `remit signer token revoke <name>` | Revoke a bearer token |
 | `remit a2a discover/pay/card` | A2A agent discovery and payments |
 | `remit config set/get/show` | Configuration |
 | `remit completions <shell>` | Shell completions (bash, zsh, fish, powershell) |
@@ -157,44 +140,29 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 |------|-------------|
 | `--name <NAME>` | Wallet name (default: `remit-{hostname}`) |
 | `--chain <CHAIN>` | `base` or `base-sepolia` (default: `base`) |
-| `--ows` | Use OWS wallet instead of local signer |
+| `--ows` | Use OWS wallet instead of CLI signer |
 | `--legacy` | Skip signer/OWS, generate a raw private key instead |
 | `--write-env` | (Legacy only) Write key to `.env` in current directory |
 
-## `wallet set-policy` Flags
+## `sign` Flags
 
 | Flag | Description |
 |------|-------------|
-| `--chain <CHAIN>` | `base` or `base-sepolia` (default: `base`) |
-| `--max-tx <USDC>` | Per-transaction spending cap in dollars |
-| `--daily-limit <USDC>` | Daily spending cap in dollars |
-
-## `wallet fund` Flags
-
-| Flag | Description |
-|------|-------------|
-| `--wallet <NAME>` | Wallet name or ID (default: `OWS_WALLET_ID` env var) |
-| `--amount <USDC>` | Pre-fill fund amount |
-
-## `pay` Flags
-
-| Flag | Description |
-|------|-------------|
-| `--no-permit` | Skip EIP-2612 permit auto-signing (use existing on-chain approval instead) |
-| `--memo <text>` | Attach a memo to the payment |
+| `--eip712` | Sign EIP-712 typed data (JSON on stdin) |
+| `--digest` | Sign raw 32-byte digest (hex on stdin) |
+| `--keystore <PATH>` | Keystore path (default: `~/.remit/keys/default.enc`) |
+| `--password-file <PATH>` | Read password from file instead of `REMIT_KEY_PASSWORD` |
 
 ## Auth
 
-### Local signer (default, recommended)
+### CLI signer (default, recommended)
 
 ```bash
-remit init                            # one-time setup — generates wallet + token
-remit signer start                    # start signing server
-export REMIT_SIGNER_URL=http://localhost:7402
-export REMIT_SIGNER_TOKEN=<token>     # shown once by init
+remit signer init                     # one-time setup — generates encrypted keystore
+export REMIT_KEY_PASSWORD=your-password
 ```
 
-Keys are AES-256-GCM encrypted at `~/.remit/keys/`. The signer exposes `POST /sign` and `POST /sign-typed-data` over localhost HTTP. Any SDK or language can use it — no FFI required.
+Keys are AES-256-GCM encrypted at `~/.remit/keys/default.enc`. The CLI decrypts in-process when signing. SDKs invoke `remit sign` as a subprocess — no HTTP server, no ports, no network exposure.
 
 ### OWS
 
