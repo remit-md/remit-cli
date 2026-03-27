@@ -64,16 +64,19 @@ impl ChainConfig {
 
 // ── Signing backend ──────────────────────────────────────────────────────────
 
-/// Signing backend — local private key (keystore backend added in C0.8).
+/// Signing backend — local private key or encrypted keystore.
 pub enum SigningBackend {
     /// Local private key (loaded from REMITMD_KEY).
     Local(PrivateKeySigner),
+    /// Encrypted keystore (decrypted in-process with REMIT_KEY_PASSWORD).
+    Keystore(PrivateKeySigner),
 }
 
 impl std::fmt::Debug for SigningBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Local(_) => write!(f, "SigningBackend::Local(<key>)"),
+            Self::Keystore(_) => write!(f, "SigningBackend::Keystore(<key>)"),
         }
     }
 }
@@ -81,13 +84,37 @@ impl std::fmt::Debug for SigningBackend {
 /// Resolve the signing backend from environment variables.
 ///
 /// Priority:
-///   1. REMITMD_KEY — local private key
-///   2. Keystore + REMIT_KEY_PASSWORD (added in C0.8)
+///   1. REMITMD_KEY — local private key (raw, in env)
+///   2. Keystore exists + REMIT_KEY_PASSWORD set — decrypt keystore in-process
 ///   3. Error if neither is set
 pub fn resolve_signer() -> Result<SigningBackend> {
+    // 1. Raw private key in env
     if let Ok(key_hex) = env::var("REMITMD_KEY") {
         let signer = signer_from_hex(&key_hex)?;
         return Ok(SigningBackend::Local(signer));
+    }
+
+    // 2. Keystore + password
+    if let Ok(password) = env::var("REMIT_KEY_PASSWORD") {
+        if !password.is_empty() {
+            if let Ok(ks) = crate::signer::keystore::Keystore::open() {
+                if ks.exists("default") {
+                    let key_file = ks
+                        .load("default")
+                        .map_err(|e| anyhow!("Cannot load keystore: {e}"))?;
+                    if key_file.version == 1 {
+                        return Err(anyhow!(
+                            "Keystore version 1 (V24). Run: remit signer migrate"
+                        ));
+                    }
+                    let signer =
+                        crate::signer::keystore::decrypt(&key_file, &password).map_err(|_| {
+                            anyhow!("Invalid password for keystore. Check REMIT_KEY_PASSWORD.")
+                        })?;
+                    return Ok(SigningBackend::Keystore(signer));
+                }
+            }
+        }
     }
 
     Err(anyhow!(
@@ -122,7 +149,9 @@ pub fn signer_from_hex(key_hex: &str) -> Result<PrivateKeySigner> {
 /// Return the wallet address (lowercase, 0x-prefixed).
 pub async fn wallet_address() -> Result<String> {
     match resolve_signer()? {
-        SigningBackend::Local(signer) => Ok(format!("{:#x}", signer.address())),
+        SigningBackend::Local(signer) | SigningBackend::Keystore(signer) => {
+            Ok(format!("{:#x}", signer.address()))
+        }
     }
 }
 
@@ -249,7 +278,7 @@ pub async fn build_auth_headers(
     let backend = resolve_signer()?;
 
     let (sig_hex, address) = match backend {
-        SigningBackend::Local(signer) => {
+        SigningBackend::Local(signer) | SigningBackend::Keystore(signer) => {
             let sig = signer
                 .sign_hash_sync(&hash.into())
                 .map_err(|e| anyhow!("signing failed: {e}"))?;
@@ -273,7 +302,7 @@ pub async fn build_auth_headers(
 /// Used by permit.rs for EIP-2612 permit signing.
 pub async fn sign_digest(digest: &[u8; 32]) -> Result<([u8; 65], String)> {
     match resolve_signer()? {
-        SigningBackend::Local(signer) => {
+        SigningBackend::Local(signer) | SigningBackend::Keystore(signer) => {
             let sig = signer
                 .sign_hash_sync(&(*digest).into())
                 .map_err(|e| anyhow!("signing failed: {e}"))?;
@@ -427,7 +456,7 @@ mod tests {
         let result = resolve_signer();
         assert!(result.is_ok(), "should resolve Local variant");
         match result.unwrap() {
-            SigningBackend::Local(signer) => {
+            SigningBackend::Local(signer) | SigningBackend::Keystore(signer) => {
                 let addr = format!("{:#x}", signer.address());
                 assert_eq!(addr, "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
             }
