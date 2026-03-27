@@ -228,6 +228,14 @@ impl Keystore {
     }
 }
 
+/// Load an encrypted key file from an explicit path (not using Keystore directory).
+pub fn load_file(path: &std::path::Path) -> Result<EncryptedKeyFile> {
+    let contents = std::fs::read_to_string(path)
+        .with_context(|| format!("cannot read key file: {}", path.display()))?;
+    serde_json::from_str(&contents)
+        .with_context(|| format!("cannot parse key file: {}", path.display()))
+}
+
 // ── Pure crypto functions ──────────────────────────────────────────────────
 
 /// Encrypt a private key (arbitrary bytes, must be 32) with AES-256-GCM.

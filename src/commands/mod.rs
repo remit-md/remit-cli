@@ -9,6 +9,7 @@ pub mod fund;
 pub mod init;
 pub mod mint;
 pub mod pay;
+pub mod sign;
 pub mod signer;
 pub mod status;
 pub mod stream;

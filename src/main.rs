@@ -102,6 +102,8 @@ enum Commands {
         #[command(subcommand)]
         action: commands::webhook::WebhookAction,
     },
+    /// Sign data using the encrypted keystore (stdin → stdout)
+    Sign(commands::sign::SignArgs),
     /// Local signer operations (init, import)
     Signer {
         #[command(subcommand)]
@@ -162,6 +164,7 @@ async fn main() -> Result<()> {
         Commands::A2A { action } => commands::a2a::run(action, ctx).await,
         Commands::Wallet { action } => commands::wallet::run(action, ctx).await,
         Commands::Webhook { action } => commands::webhook::run(action, ctx).await,
+        Commands::Sign(args) => commands::sign::run(args).await,
         Commands::Signer { action } => commands::signer::run(action, ctx).await,
         Commands::Completions(args) => {
             completions::run(args, &mut Cli::command());
