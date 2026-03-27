@@ -5,4 +5,5 @@
 #![allow(dead_code)]
 
 pub mod keystore;
+pub mod policy;
 pub mod tokens;
