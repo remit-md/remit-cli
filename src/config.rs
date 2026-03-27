@@ -13,6 +13,15 @@ pub struct Config {
     pub output_format: Option<String>, // "table" | "json"
     #[serde(default)]
     pub api_base: Option<String>,
+    #[serde(default)]
+    pub install: Option<InstallConfig>,
+}
+
+/// Tracks how the CLI was installed, for `remit update`.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct InstallConfig {
+    pub method: Option<String>, // "brew" | "winget" | "scoop" | "cargo" | "curl" | "manual"
+    pub installed_at: Option<String>,
 }
 
 pub fn config_path() -> Result<PathBuf> {

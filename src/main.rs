@@ -112,6 +112,8 @@ enum Commands {
         #[command(subcommand)]
         action: commands::signer::SignerAction,
     },
+    /// Update the Remit CLI to the latest version
+    Update(commands::update::UpdateArgs),
     /// Generate shell completion scripts
     Completions(completions::CompletionsArgs),
 }
@@ -170,6 +172,7 @@ async fn main() -> Result<()> {
         Commands::Address(args) => commands::address::run(args).await,
         Commands::Sign(args) => commands::sign::run(args).await,
         Commands::Signer { action } => commands::signer::run(action, ctx).await,
+        Commands::Update(args) => commands::update::run(args, ctx).await,
         Commands::Completions(args) => {
             completions::run(args, &mut Cli::command());
             Ok(())

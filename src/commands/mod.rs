@@ -15,6 +15,7 @@ pub mod signer;
 pub mod status;
 pub mod stream;
 pub mod tab;
+pub mod update;
 pub mod wallet;
 pub mod webhook;
 pub mod withdraw;
