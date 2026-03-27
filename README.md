@@ -47,15 +47,26 @@ cargo install --path .
 
 ## Setup
 
-### With OWS (recommended)
+### With local signer (default, recommended)
 
-[OWS](https://openwallet.sh) encrypts keys locally and evaluates spending policies before every signature. `remit init` handles the full setup:
+The local signer runs a lightweight HTTP signing server on `localhost:7402`. Private keys are AES-256-GCM encrypted at rest. Any SDK or language can sign via HTTP — no FFI, no native dependencies.
 
 ```bash
-remit init
+remit init                        # generates wallet + encrypted key + bearer token
+remit signer start                # starts signing server on localhost:7402
+export REMIT_SIGNER_URL=http://localhost:7402
+export REMIT_SIGNER_TOKEN=<shown by init>
 ```
 
-This creates an OWS wallet (`remit-{hostname}`), a Base chain-lock policy, and an API key. It prints your wallet address and MCP config — set `OWS_API_KEY` in your environment.
+### With OWS
+
+[OWS](https://openwallet.sh) encrypts keys locally and evaluates spending policies before every signature.
+
+```bash
+remit init --ows                  # creates OWS wallet + policy + API key
+export OWS_WALLET_ID=remit-my-agent
+export OWS_API_KEY=<shown by init>
+```
 
 ```bash
 # With options
@@ -73,6 +84,18 @@ remit init --legacy --write-env   # generates key, saves to .env
 export REMITMD_KEY=0x<your-private-key>
 ```
 
+## Wallet Modes
+
+The CLI supports three wallet modes. It checks them in priority order:
+
+| Priority | Mode | Env Var | Description |
+|----------|------|---------|-------------|
+| 1 | Local signer | `REMIT_SIGNER_URL` | HTTP signing server on localhost. Any language, any sandbox. |
+| 2 | OWS | `OWS_WALLET_ID` | Encrypted local vault with spending policies. Requires OWS binary. |
+| 3 | Raw key | `REMITMD_KEY` | Private key in environment. Simple but less secure. |
+
+If `REMIT_SIGNER_URL` is set, the CLI delegates all signing to the local signer server. Otherwise it falls back to OWS, then raw key.
+
 ## Quickstart
 
 ```bash
@@ -88,7 +111,7 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 
 | Command | Description |
 |---------|-------------|
-| `remit init` | Create OWS wallet + policy + API key (or `--legacy` for raw key) |
+| `remit init` | Create local signer wallet (default), OWS (`--ows`), or raw key (`--legacy`) |
 | `remit wallet list` | List all OWS wallets |
 | `remit wallet fund` | Open fund link in browser |
 | `remit wallet set-policy` | Configure spending limits |
@@ -109,6 +132,14 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 | `remit withdraw` | Generate withdraw link |
 | `remit mint <amount>` | Mint testnet USDC (max 2500/hr) |
 | `remit webhook create/list/delete` | Webhook subscriptions |
+| `remit signer init` | Generate new wallet + encrypted key + bearer token |
+| `remit signer start` | Start signing server on localhost:7402 |
+| `remit signer stop` | Stop the signing server |
+| `remit signer status` | Check if signer is running |
+| `remit signer import --key 0x...` | Import an existing private key |
+| `remit signer token create` | Create a new bearer token |
+| `remit signer token list` | List bearer tokens |
+| `remit signer token revoke <name>` | Revoke a bearer token |
 | `remit a2a discover/pay/card` | A2A agent discovery and payments |
 | `remit config set/get/show` | Configuration |
 | `remit completions <shell>` | Shell completions (bash, zsh, fish, powershell) |
@@ -126,7 +157,8 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 |------|-------------|
 | `--name <NAME>` | Wallet name (default: `remit-{hostname}`) |
 | `--chain <CHAIN>` | `base` or `base-sepolia` (default: `base`) |
-| `--legacy` | Skip OWS, generate a raw private key instead |
+| `--ows` | Use OWS wallet instead of local signer |
+| `--legacy` | Skip signer/OWS, generate a raw private key instead |
 | `--write-env` | (Legacy only) Write key to `.env` in current directory |
 
 ## `wallet set-policy` Flags
@@ -153,10 +185,21 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 
 ## Auth
 
-### OWS (recommended)
+### Local signer (default, recommended)
 
 ```bash
-remit init                            # one-time setup
+remit init                            # one-time setup — generates wallet + token
+remit signer start                    # start signing server
+export REMIT_SIGNER_URL=http://localhost:7402
+export REMIT_SIGNER_TOKEN=<token>     # shown once by init
+```
+
+Keys are AES-256-GCM encrypted at `~/.remit/keys/`. The signer exposes `POST /sign` and `POST /sign-typed-data` over localhost HTTP. Any SDK or language can use it — no FFI required.
+
+### OWS
+
+```bash
+remit init --ows                      # one-time setup
 export OWS_WALLET_ID=remit-my-agent   # wallet name from init
 export OWS_API_KEY=<token>            # shown once by init
 ```
