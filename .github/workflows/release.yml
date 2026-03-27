@@ -120,3 +120,43 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: Compute SHA256 checksums
+        id: checksums
+        run: |
+          cd artifacts
+          for f in *; do
+            name=$(echo "$f" | sed 's/[^a-zA-Z0-9]/_/g')
+            sha=$(sha256sum "$f" | cut -d' ' -f1)
+            echo "${name}=${sha}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Update Homebrew tap
+        if: "!contains(github.ref_name, '-')"
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          repository: remit-md/homebrew-tap
+          event-type: release-published
+          client-payload: |
+            {
+              "version": "${{ github.ref_name }}",
+              "sha_linux_x86": "${{ steps.checksums.outputs.remit_x86_64_unknown_linux_gnu_tar_gz }}",
+              "sha_linux_arm": "${{ steps.checksums.outputs.remit_aarch64_unknown_linux_gnu_tar_gz }}",
+              "sha_macos_x86": "${{ steps.checksums.outputs.remit_x86_64_apple_darwin_tar_gz }}",
+              "sha_macos_arm": "${{ steps.checksums.outputs.remit_aarch64_apple_darwin_tar_gz }}",
+              "sha_windows_x86": "${{ steps.checksums.outputs.remit_x86_64_pc_windows_msvc_zip }}"
+            }
+
+      - name: Update Scoop bucket
+        if: "!contains(github.ref_name, '-')"
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          repository: remit-md/scoop-bucket
+          event-type: release-published
+          client-payload: |
+            {
+              "version": "${{ github.ref_name }}",
+              "sha_windows_x86": "${{ steps.checksums.outputs.remit_x86_64_pc_windows_msvc_zip }}"
+            }
