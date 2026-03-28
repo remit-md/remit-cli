@@ -535,13 +535,14 @@ impl RemitClient {
         if let Some(n) = name {
             body["agent_name"] = serde_json::Value::String(n.to_string());
         }
-        if !messages.is_empty() {
-            let msgs: Vec<_> = messages
-                .iter()
-                .map(|msg| serde_json::json!({ "role": "agent", "text": msg }))
-                .collect();
-            body["messages"] = serde_json::Value::Array(msgs);
+        // System intro first (fund page linkifies "Base L2"), then agent messages
+        let mut msgs = vec![
+            serde_json::json!({ "role": "system", "text": "Your agent is requesting funds. Wallet verified on Base L2. Choose a payment method to fund." }),
+        ];
+        for msg in messages {
+            msgs.push(serde_json::json!({ "role": "agent", "text": msg }));
         }
+        body["messages"] = serde_json::Value::Array(msgs);
         self.post("/links/fund", body).await
     }
 
