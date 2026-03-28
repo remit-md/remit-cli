@@ -1,6 +1,6 @@
 [package]
 name = "remit-cli"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "CLI for the Remit payment protocol — USDC payments for AI agents"
 license = "MIT"
