@@ -7,8 +7,8 @@ use crate::ows;
 
 /// Initialize a Remit agent wallet.
 ///
-/// Default: creates a local signer wallet (encrypted key + bearer token).
-/// Use --ows for OWS wallet, --legacy for raw keypair.
+/// Default: stores key in OS keychain (no password needed).
+/// Use --no-keychain for encrypted .enc file, --ows for OWS, --legacy for raw keypair.
 #[derive(Args)]
 pub struct InitArgs {
     /// Wallet name (default: remit-{hostname})
@@ -30,6 +30,10 @@ pub struct InitArgs {
     /// Use legacy raw keypair instead of local signer
     #[arg(long, conflicts_with = "ows")]
     pub legacy: bool,
+
+    /// Force password-encrypted .enc file instead of OS keychain
+    #[arg(long)]
+    pub no_keychain: bool,
 }
 
 pub async fn run(args: InitArgs, ctx: commands::Context) -> Result<()> {
@@ -47,7 +51,10 @@ pub async fn run(args: InitArgs, ctx: commands::Context) -> Result<()> {
 /// Default init: local signer.
 async fn run_signer(args: InitArgs, ctx: commands::Context) -> Result<()> {
     // Delegate to `remit signer init` with the same args
-    let signer_args = crate::commands::signer::SignerInitArgs { name: args.name };
+    let signer_args = crate::commands::signer::SignerInitArgs {
+        name: args.name,
+        no_keychain: args.no_keychain,
+    };
     crate::commands::signer::run(
         crate::commands::signer::SignerAction::Init(signer_args),
         ctx,

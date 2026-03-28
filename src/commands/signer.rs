@@ -3,6 +3,7 @@ use clap::Subcommand;
 use std::io::IsTerminal;
 
 use crate::output;
+use crate::signer::keyring;
 use crate::signer::keystore;
 
 #[derive(Subcommand)]
@@ -20,6 +21,9 @@ pub struct SignerInitArgs {
     /// Wallet name (default: "default")
     #[arg(long)]
     pub name: Option<String>,
+    /// Force password-encrypted .enc file instead of OS keychain
+    #[arg(long)]
+    pub no_keychain: bool,
 }
 
 #[derive(clap::Args)]
@@ -30,6 +34,9 @@ pub struct SignerImportArgs {
     /// Wallet name (default: "default")
     #[arg(long)]
     pub name: Option<String>,
+    /// Force password-encrypted .enc file instead of OS keychain
+    #[arg(long)]
+    pub no_keychain: bool,
 }
 
 #[derive(clap::Args)]
@@ -45,6 +52,17 @@ pub async fn run(action: SignerAction, ctx: crate::commands::Context) -> Result<
         SignerAction::Import(args) => run_import(args, ctx).await,
         SignerAction::Migrate(args) => run_migrate(args).await,
     }
+}
+
+// ── Wallet existence check ───────────────────────────────────────────────
+
+/// Check if a wallet already exists (either .enc or .meta file).
+fn wallet_exists(name: &str) -> Result<bool> {
+    let ks = keystore::Keystore::open()?;
+    if ks.exists(name) {
+        return Ok(true);
+    }
+    keyring::MetaFile::exists(name)
 }
 
 // ── Password acquisition ─────────────────────────────────────────────────
@@ -100,38 +118,90 @@ fn acquire_password_with_confirmation() -> Result<String> {
 // ── Init ───────────────────────────────────────────────────────────────────
 
 async fn run_init(args: SignerInitArgs, ctx: crate::commands::Context) -> Result<()> {
-    let ks = keystore::Keystore::open()?;
     let wallet_name = args.name.unwrap_or_else(|| "default".to_string());
 
-    if ks.exists(&wallet_name) {
+    if wallet_exists(&wallet_name)? {
         return Err(anyhow!(
-            "wallet '{}' already exists. Use a different --name or delete ~/.remit/keys/{}.enc",
+            "wallet '{}' already exists. Use a different --name.",
             wallet_name,
-            wallet_name
         ));
     }
 
-    let password = acquire_password_with_confirmation()?;
-    let address = ks.generate(&wallet_name, &password)?;
+    let use_keychain = !args.no_keychain && keyring::is_available();
+
+    if use_keychain {
+        run_init_keychain(&wallet_name, &ctx)
+    } else {
+        run_init_enc(&wallet_name, &ctx)
+    }
+}
+
+/// Init with OS keychain: generate key, store in keychain, write .meta file.
+fn run_init_keychain(wallet_name: &str, ctx: &crate::commands::Context) -> Result<()> {
+    use alloy::signers::local::PrivateKeySigner;
+    use rand::rngs::OsRng;
+    use zeroize::Zeroizing;
+
+    // Generate keypair
+    let signer = PrivateKeySigner::random_with(&mut OsRng);
+    let address = format!("{:#x}", signer.address());
+
+    // Extract raw key bytes
+    let field_bytes = signer.credential().to_bytes();
+    let mut raw_key = Zeroizing::new([0u8; 32]);
+    raw_key.copy_from_slice(field_bytes.as_slice());
+
+    // Store in OS keychain
+    keyring::store_key(wallet_name, &raw_key)?;
+
+    // Write .meta file (public info only)
+    let meta = keyring::MetaFile {
+        version: 2,
+        name: wallet_name.to_string(),
+        address: address.clone(),
+        storage: "keychain".to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    meta.write_to_disk()?;
 
     if ctx.json {
         output::print_json(&serde_json::json!({
             "wallet": wallet_name,
             "address": address,
-            "keystore": keystore::Keystore::open()?.key_path(&wallet_name).display().to_string(),
+            "storage": "keychain",
         }));
     } else {
         eprintln!();
         output::print_kv(&[
-            ("Wallet", &wallet_name),
+            ("Wallet", wallet_name),
             ("Address", &address),
-            (
-                "Keystore",
-                &keystore::Keystore::open()?
-                    .key_path(&wallet_name)
-                    .display()
-                    .to_string(),
-            ),
+            ("Key stored in", "OS keychain (encrypted by your login)"),
+        ]);
+        eprintln!();
+        eprintln!("No password or env vars needed. Just use `remit pay`, `remit sign`, etc.");
+    }
+
+    Ok(())
+}
+
+/// Init with encrypted .enc file: generate key, prompt password, write .enc.
+fn run_init_enc(wallet_name: &str, ctx: &crate::commands::Context) -> Result<()> {
+    let ks = keystore::Keystore::open()?;
+    let password = acquire_password_with_confirmation()?;
+    let address = ks.generate(wallet_name, &password)?;
+
+    if ctx.json {
+        output::print_json(&serde_json::json!({
+            "wallet": wallet_name,
+            "address": address,
+            "keystore": ks.key_path(wallet_name).display().to_string(),
+        }));
+    } else {
+        eprintln!();
+        output::print_kv(&[
+            ("Wallet", wallet_name),
+            ("Address", &address),
+            ("Keystore", &ks.key_path(wallet_name).display().to_string()),
         ]);
         eprintln!();
         eprintln!("Set your password for non-interactive signing:");
@@ -144,37 +214,105 @@ async fn run_init(args: SignerInitArgs, ctx: crate::commands::Context) -> Result
 // ── Import ─────────────────────────────────────────────────────────────────
 
 async fn run_import(args: SignerImportArgs, ctx: crate::commands::Context) -> Result<()> {
-    let ks = keystore::Keystore::open()?;
     let wallet_name = args.name.unwrap_or_else(|| "default".to_string());
 
-    if ks.exists(&wallet_name) {
+    if wallet_exists(&wallet_name)? {
         return Err(anyhow!(
             "wallet '{}' already exists. Use a different --name.",
             wallet_name
         ));
     }
 
-    let password = acquire_password_with_confirmation()?;
-    let address = ks.import(&wallet_name, &args.key, &password)?;
+    let use_keychain = !args.no_keychain && keyring::is_available();
+
+    if use_keychain {
+        run_import_keychain(&wallet_name, &args.key, &ctx)
+    } else {
+        run_import_enc(&wallet_name, &args.key, &ctx)
+    }
+}
+
+/// Import with OS keychain: parse key, store in keychain, write .meta file.
+fn run_import_keychain(
+    wallet_name: &str,
+    private_key_hex: &str,
+    ctx: &crate::commands::Context,
+) -> Result<()> {
+    use alloy::signers::local::PrivateKeySigner;
+    use zeroize::Zeroizing;
+
+    // Parse and validate key
+    let hex_clean = private_key_hex.trim_start_matches("0x");
+    let raw_bytes = hex::decode(hex_clean).map_err(|_| anyhow!("private key is not valid hex"))?;
+    if raw_bytes.len() != 32 {
+        return Err(anyhow!(
+            "private key must be exactly 32 bytes (64 hex chars)"
+        ));
+    }
+
+    let mut raw_key = Zeroizing::new([0u8; 32]);
+    raw_key.copy_from_slice(&raw_bytes);
+
+    // Derive address
+    let signer = PrivateKeySigner::from_bytes(&(*raw_key).into())
+        .map_err(|_| anyhow!("not a valid secp256k1 private key"))?;
+    let address = format!("{:#x}", signer.address());
+
+    // Store in OS keychain
+    keyring::store_key(wallet_name, &raw_key)?;
+
+    // Write .meta file
+    let meta = keyring::MetaFile {
+        version: 2,
+        name: wallet_name.to_string(),
+        address: address.clone(),
+        storage: "keychain".to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    meta.write_to_disk()?;
 
     if ctx.json {
         output::print_json(&serde_json::json!({
             "wallet": wallet_name,
             "address": address,
-            "keystore": keystore::Keystore::open()?.key_path(&wallet_name).display().to_string(),
+            "storage": "keychain",
         }));
     } else {
         eprintln!();
         output::print_kv(&[
-            ("Wallet", &wallet_name),
+            ("Wallet", wallet_name),
             ("Address", &address),
-            (
-                "Keystore",
-                &keystore::Keystore::open()?
-                    .key_path(&wallet_name)
-                    .display()
-                    .to_string(),
-            ),
+            ("Key stored in", "OS keychain (encrypted by your login)"),
+        ]);
+        eprintln!();
+        eprintln!("No password or env vars needed. Just use `remit pay`, `remit sign`, etc.");
+    }
+
+    Ok(())
+}
+
+/// Import with encrypted .enc file: parse key, prompt password, write .enc.
+fn run_import_enc(
+    wallet_name: &str,
+    private_key_hex: &str,
+    ctx: &crate::commands::Context,
+) -> Result<()> {
+    let ks = keystore::Keystore::open()?;
+    let password = acquire_password_with_confirmation()?;
+    let address = ks.import(wallet_name, private_key_hex, &password)?;
+
+    if ctx.json {
+        output::print_json(&serde_json::json!({
+            "wallet": wallet_name,
+            "address": address,
+            "keystore": ks.key_path(wallet_name).display().to_string(),
+        }));
+    } else {
+        eprintln!();
+        output::print_kv(&[
+            ("Wallet", wallet_name),
+            ("Address", &address),
+            ("Keystore", &ks.key_path(wallet_name).display().to_string()),
         ]);
         eprintln!();
         eprintln!("Set your password for non-interactive signing:");
