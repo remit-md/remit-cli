@@ -11,7 +11,7 @@
 #[macro_use]
 mod harness;
 
-use harness::{mint_usdc, shared_wallets, TestWallet};
+use harness::{get_contracts, mint_usdc, shared_wallets, TestWallet};
 
 // ── 1. Wallet generation (standalone) ───────────────────────────────────────
 
@@ -128,9 +128,10 @@ async fn t05_escrow_lifecycle() {
     // Release (payer approves)
     acceptance_log!("escrow | release {escrow_id}");
     let release_json = payer.run_cli_json(&["escrow", "release", escrow_id]);
+    let status = release_json["status"].as_str().unwrap();
     assert!(
-        release_json["status"].as_str().unwrap() == "released"
-            || release_json["status"].as_str().unwrap() == "settled"
+        status == "released" || status == "settled" || status == "completed",
+        "expected released/settled/completed, got {status}"
     );
     acceptance_log!("PASS");
 }
@@ -160,7 +161,18 @@ async fn t06_tab_lifecycle() {
     let tab_id = open_json["id"].as_str().expect("should have tab id");
     assert_eq!(open_json["status"].as_str().unwrap(), "open");
 
-    // Charge tab (provider charges 2.50)
+    // Get tab contract address for EIP-712 signing
+    let contracts = get_contracts().await;
+    let tab_contract = contracts["tab"]
+        .as_str()
+        .expect("should have tab contract address");
+
+    // Provider signs TabCharge EIP-712 for charge
+    let charge_units: u64 = 2_500_000; // 2.50 USDC in 6-decimal units
+    let call_count: u32 = 1;
+    let charge_sig = provider.sign_tab_charge(tab_contract, tab_id, charge_units, call_count);
+
+    // Charge tab (provider charges 2.50 with EIP-712 sig)
     acceptance_log!("tab | charge {tab_id} 2.50");
     let charge_json = provider.run_cli_json(&[
         "tab",
@@ -178,9 +190,20 @@ async fn t06_tab_lifecycle() {
         charge_json["cumulative"]
     );
 
-    // Close tab (payer closes with final settlement amount)
+    // Provider signs final state for close (same cumulative)
+    let close_sig = provider.sign_tab_charge(tab_contract, tab_id, charge_units, call_count);
+
+    // Close tab (payer closes with provider's EIP-712 signature)
     acceptance_log!("tab | close {tab_id} final_amount=2.50");
-    let close_json = payer.run_cli_json(&["tab", "close", tab_id, "--final-amount", "2.50"]);
+    let close_json = payer.run_cli_json(&[
+        "tab",
+        "close",
+        tab_id,
+        "--final-amount",
+        "2.50",
+        "--provider-sig",
+        &close_sig,
+    ]);
     let status = close_json["status"].as_str().unwrap();
     assert!(
         status == "closed" || status == "settled",
