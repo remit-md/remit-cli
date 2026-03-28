@@ -1,11 +1,15 @@
 #![allow(dead_code)]
 //! CLI acceptance test harness.
 //!
-//! Provides helpers for running the `remit` binary against the live Base Sepolia API.
-//! All operations go through the Remit API — no direct RPC calls.
+//! All operations go through the Remit API (via CLI or HTTP).
+//! No direct RPC calls — balances come from `remit balance`, not eth_call.
+//!
+//! A single wallet pair (payer + provider) is shared across all tests.
+//! Tests run sequentially (`--test-threads=1`) so nonces are ordered correctly.
 
 use serde_json::Value;
 use std::process::Command;
+use std::sync::OnceLock;
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +26,23 @@ macro_rules! acceptance_log {
     ($($arg:tt)*) => {
         eprintln!("[ACCEPTANCE] {}", format!($($arg)*));
     };
+}
+
+// ── Shared wallet pair ──────────────────────────────────────────────────────
+
+static WALLETS: OnceLock<(TestWallet, TestWallet)> = OnceLock::new();
+
+/// Get the shared wallet pair (payer, provider). Created once, reused across all tests.
+/// Mint happens in the `mint_and_balance` test — must run first.
+pub fn shared_wallets() -> &'static (TestWallet, TestWallet) {
+    WALLETS.get_or_init(|| {
+        acceptance_log!("=== SHARED WALLET SETUP ===");
+        let payer = TestWallet::generate();
+        let provider = TestWallet::generate();
+        acceptance_log!("payer:    {}", payer.address);
+        acceptance_log!("provider: {}", provider.address);
+        (payer, provider)
+    })
 }
 
 // ── CLI output ──────────────────────────────────────────────────────────────
@@ -172,9 +193,91 @@ impl TestWallet {
         );
         final_balance
     }
+    /// Sign an EIP-712 TabCharge message (for tab charge/close).
+    /// Returns the hex-encoded signature.
+    pub fn sign_tab_charge(
+        &self,
+        tab_contract: &str,
+        tab_id: &str,
+        total_charged_units: u64,
+        call_count: u32,
+    ) -> String {
+        use alloy::primitives::{keccak256, Address, FixedBytes, U256};
+        use alloy::signers::local::PrivateKeySigner;
+        use alloy::signers::SignerSync;
+
+        let key_bytes =
+            hex::decode(self.private_key.trim_start_matches("0x")).expect("valid hex key");
+        let signer = PrivateKeySigner::from_bytes(&FixedBytes::from_slice(&key_bytes))
+            .expect("valid private key");
+
+        // EIP-712 domain separator for RemitTab
+        let chain_id: u64 = 84532; // Base Sepolia
+        let contract: Address = tab_contract.parse().expect("valid tab contract address");
+
+        // Domain hash: EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)
+        let domain_typehash = keccak256(
+            "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
+        );
+        let name_hash = keccak256("RemitTab");
+        let version_hash = keccak256("1");
+
+        let mut domain_data = [0u8; 160];
+        domain_data[0..32].copy_from_slice(domain_typehash.as_slice());
+        domain_data[32..64].copy_from_slice(name_hash.as_slice());
+        domain_data[64..96].copy_from_slice(version_hash.as_slice());
+        domain_data[96..128].copy_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
+        domain_data[128..160]
+            .copy_from_slice(&U256::from_be_slice(contract.as_slice()).to_be_bytes::<32>());
+        let domain_separator = keccak256(domain_data);
+
+        // TabCharge typehash
+        let type_hash = keccak256("TabCharge(bytes32 tabId,uint96 totalCharged,uint32 callCount)");
+
+        // UUID to bytes32 (ASCII left-padded)
+        let mut tab_id_bytes = [0u8; 32];
+        for (i, b) in tab_id.bytes().take(32).enumerate() {
+            tab_id_bytes[i] = b;
+        }
+
+        // Encode struct: hash(typehash || tabId || totalCharged || callCount)
+        let mut struct_data = [0u8; 128]; // 4 * 32 bytes
+        struct_data[0..32].copy_from_slice(type_hash.as_slice());
+        struct_data[32..64].copy_from_slice(&tab_id_bytes);
+        struct_data[64..96].copy_from_slice(&U256::from(total_charged_units).to_be_bytes::<32>());
+        struct_data[96..128].copy_from_slice(&U256::from(call_count).to_be_bytes::<32>());
+        let struct_hash = keccak256(struct_data);
+
+        // Final digest: \x19\x01 || domainSeparator || structHash
+        let mut digest_input = [0u8; 66];
+        digest_input[0] = 0x19;
+        digest_input[1] = 0x01;
+        digest_input[2..34].copy_from_slice(domain_separator.as_slice());
+        digest_input[34..66].copy_from_slice(struct_hash.as_slice());
+        let digest = keccak256(digest_input);
+
+        let sig = signer
+            .sign_hash_sync(&digest)
+            .expect("signing should succeed");
+        format!("0x{}", hex::encode(sig.as_bytes()))
+    }
 }
 
 // ── Funding (via Remit API) ─────────────────────────────────────────────────
+
+/// Fetch contract addresses from the API.
+pub async fn get_contracts() -> Value {
+    let url = api_url();
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{url}/contracts"))
+        .send()
+        .await
+        .expect("/contracts request failed");
+    resp.json::<Value>()
+        .await
+        .expect("parse /contracts response")
+}
 
 /// Mint testnet USDC to a wallet via the /mint API (unauthenticated).
 pub async fn mint_usdc(address: &str, amount: f64) {

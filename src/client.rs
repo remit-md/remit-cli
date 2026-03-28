@@ -317,9 +317,14 @@ impl RemitClient {
         .await
     }
 
-    pub async fn tab_close(&self, tab_id: &str, final_amount: Option<&str>) -> Result<Tab> {
+    pub async fn tab_close(
+        &self,
+        tab_id: &str,
+        final_amount: Option<&str>,
+        provider_sig: Option<&str>,
+    ) -> Result<Tab> {
         let mut body = serde_json::json!({
-            "provider_sig": "0x",
+            "provider_sig": provider_sig.unwrap_or("0x"),
         });
         if let Some(amt) = final_amount {
             body["final_amount"] = serde_json::Value::String(amt.to_string());
@@ -394,12 +399,15 @@ impl RemitClient {
             .map(|s| now as i64 + s)
             .unwrap_or(now as i64 + 86400);
 
+        let from_agent = crate::auth::wallet_address().await?;
+
         // Create invoice first
         self.post::<serde_json::Value>(
             "/invoices",
             serde_json::json!({
                 "id": invoice_id,
                 "chain": chain,
+                "from_agent": from_agent,
                 "to_agent": payee,
                 "amount": amount,
                 "type": "escrow",
