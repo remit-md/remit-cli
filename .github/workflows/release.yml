@@ -72,20 +72,9 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Install musl cross-compilation tools (aarch64)
+      - name: Install cross (aarch64 musl)
         if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
-          wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
-          tar xzf aarch64-linux-musl-cross.tgz -C /opt
-          echo "/opt/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
-
-      - name: Configure linker (aarch64 musl)
-        if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          echo '[target.aarch64-unknown-linux-musl]' >> ~/.cargo/config.toml
-          echo 'linker = "aarch64-linux-musl-gcc"' >> ~/.cargo/config.toml
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -100,11 +89,15 @@ jobs:
         if: "!matrix.musl"
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build release binary (musl — no keychain)
-        if: matrix.musl
+      - name: Build release binary (musl x86_64 — no keychain)
+        if: matrix.musl && !matrix.cross_arch
         run: cargo build --release --target ${{ matrix.target }} --no-default-features
         env:
           RUSTFLAGS: "-C target-feature=+crt-static"
+
+      - name: Build release binary (musl aarch64 via cross — no keychain)
+        if: matrix.musl && matrix.cross_arch
+        run: cross build --release --target ${{ matrix.target }} --no-default-features
 
       - name: Package archive (tar.gz)
         if: matrix.archive == 'tar.gz'
