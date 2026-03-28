@@ -37,7 +37,7 @@ jobs:
       - name: Run acceptance tests
         id: tests
         run: |
-          cargo test --test acceptance -- --ignored --test-threads=1 2>&1 | tee acceptance-output.txt
+          cargo test --test acceptance -- --ignored --test-threads=1 --nocapture 2>&1 | tee acceptance-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           REMITMD_KEY: "unused-tests-generate-own-keys"
