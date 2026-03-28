@@ -394,12 +394,15 @@ impl RemitClient {
             .map(|s| now as i64 + s)
             .unwrap_or(now as i64 + 86400);
 
+        let from_agent = crate::auth::wallet_address().await?;
+
         // Create invoice first
         self.post::<serde_json::Value>(
             "/invoices",
             serde_json::json!({
                 "id": invoice_id,
                 "chain": chain,
+                "from_agent": from_agent,
                 "to_agent": payee,
                 "amount": amount,
                 "type": "escrow",

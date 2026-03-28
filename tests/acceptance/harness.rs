@@ -1,11 +1,15 @@
 #![allow(dead_code)]
 //! CLI acceptance test harness.
 //!
-//! Provides helpers for running the `remit` binary against the live Base Sepolia API.
-//! All operations go through the Remit API — no direct RPC calls.
+//! All operations go through the Remit API (via CLI or HTTP).
+//! No direct RPC calls — balances come from `remit balance`, not eth_call.
+//!
+//! A single wallet pair (payer + provider) is shared across all tests.
+//! Tests run sequentially (`--test-threads=1`) so nonces are ordered correctly.
 
 use serde_json::Value;
 use std::process::Command;
+use std::sync::OnceLock;
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +26,23 @@ macro_rules! acceptance_log {
     ($($arg:tt)*) => {
         eprintln!("[ACCEPTANCE] {}", format!($($arg)*));
     };
+}
+
+// ── Shared wallet pair ──────────────────────────────────────────────────────
+
+static WALLETS: OnceLock<(TestWallet, TestWallet)> = OnceLock::new();
+
+/// Get the shared wallet pair (payer, provider). Created once, reused across all tests.
+/// Mint happens in the `mint_and_balance` test — must run first.
+pub fn shared_wallets() -> &'static (TestWallet, TestWallet) {
+    WALLETS.get_or_init(|| {
+        acceptance_log!("=== SHARED WALLET SETUP ===");
+        let payer = TestWallet::generate();
+        let provider = TestWallet::generate();
+        acceptance_log!("payer:    {}", payer.address);
+        acceptance_log!("provider: {}", provider.address);
+        (payer, provider)
+    })
 }
 
 // ── CLI output ──────────────────────────────────────────────────────────────
