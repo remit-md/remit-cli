@@ -522,10 +522,23 @@ impl RemitClient {
 
     // ── Links ─────────────────────────────────────────────────────────────────
 
-    pub async fn link_fund(&self, amount: Option<&str>) -> Result<CreateLinkResponse> {
+    pub async fn link_fund(
+        &self,
+        amount: Option<&str>,
+        name: Option<&str>,
+        message: Option<&str>,
+    ) -> Result<CreateLinkResponse> {
         let mut body = serde_json::json!({});
         if let Some(amt) = amount {
             body["amount"] = serde_json::Value::String(amt.to_string());
+        }
+        if let Some(n) = name {
+            body["agent_name"] = serde_json::Value::String(n.to_string());
+        }
+        if let Some(msg) = message {
+            body["messages"] = serde_json::json!([
+                { "role": "agent", "text": msg }
+            ]);
         }
         self.post("/links/fund", body).await
     }
