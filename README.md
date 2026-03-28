@@ -83,12 +83,13 @@ If a keystore exists at `~/.remit/keys/default.enc` and `REMIT_KEY_PASSWORD` is 
 ## Quickstart
 
 ```bash
-remit status                         # Wallet info + balance
-remit pay 0xRecipient 10.00          # Send 10 USDC
-remit tab open 0xCounterparty 100    # Open a tab with 100 USDC limit
-remit tab charge <tab-id> 5.00       # Charge 5 USDC to the tab
-remit wallet fund                    # Open fund link in browser
-remit --testnet mint 100             # Mint 100 testnet USDC
+remit status                                          # Wallet info + balance
+remit pay 0xRecipient 10.00                           # Send 10 USDC
+remit tab open 0xProvider 100 --per-unit 2.50         # Open tab (100 USDC limit, 2.50/unit)
+remit tab charge <tab-id> 2.50 --cumulative 2.50      # Charge 2.50 USDC
+remit tab close <tab-id> --final-amount 5.00 --provider-sig 0x...  # Settle tab
+remit wallet fund                                     # Open fund link in browser
+remit --testnet mint 100                              # Mint 100 testnet USDC
 ```
 
 ## Commands
@@ -109,7 +110,9 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 | `remit status` | Wallet status and balance |
 | `remit balance` | USDC balance |
 | `remit pay <to> <amount>` | One-time payment |
-| `remit tab open/charge/close` | Tab (running balance) |
+| `remit tab open <provider> <limit> --per-unit <amount>` | Open a metered tab |
+| `remit tab charge <id> <amount> --cumulative <total>` | Charge against tab |
+| `remit tab close <id> --final-amount <amount> --provider-sig <sig>` | Close and settle tab |
 | `remit tab get <id>` | Show tab details |
 | `remit tab list` | List open tabs |
 | `remit stream open/close` | Streaming payments |
@@ -119,7 +122,7 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 | `remit bounty post/submit/award` | Bounties |
 | `remit bounty list` | List bounties |
 | `remit deposit create` | Deposit address |
-| `remit fund` | Generate fund link |
+| `remit fund [--amount <usdc>] [--name <name>] [--message <msg>]` | Generate fund link |
 | `remit withdraw` | Generate withdraw link |
 | `remit mint <amount>` | Mint testnet USDC (max 2500/hr) |
 | `remit webhook create/list/delete` | Webhook subscriptions |
@@ -152,6 +155,28 @@ remit --testnet mint 100             # Mint 100 testnet USDC
 | `--digest` | Sign raw 32-byte digest (hex on stdin) |
 | `--keystore <PATH>` | Keystore path (default: `~/.remit/keys/default.enc`) |
 | `--password-file <PATH>` | Read password from file instead of `REMIT_KEY_PASSWORD` |
+
+## `tab` Flags
+
+| Subcommand | Flag | Description |
+|------------|------|-------------|
+| `open` | `<provider> <limit>` | Provider address and USDC spending limit (positional, required) |
+| `open` | `--per-unit <amount>` | Per-unit charge in USDC (required) |
+| `open` | `--expiry <secs>` | Expiry in seconds from now (default: 86400) |
+| `charge` | `<tab-id> <amount>` | Tab ID and charge amount (positional, required) |
+| `charge` | `--cumulative <amount>` | Running cumulative total (required) |
+| `charge` | `--call-count <n>` | Call count for this charge (default: 1) |
+| `close` | `<tab-id>` | Tab ID (positional, required) |
+| `close` | `--final-amount <amount>` | Final settlement amount in USDC |
+| `close` | `--provider-sig <hex>` | Provider's EIP-712 TabCharge signature (from `signTabCharge`) |
+
+## `fund` Flags
+
+| Flag | Description |
+|------|-------------|
+| `--amount <usdc>` | Pre-fill amount on the fund page |
+| `--name <name>` | Agent or person name shown on the fund page |
+| `--message <msg>` | Message shown on the fund page (repeatable) |
 
 ## Auth
 
