@@ -18,6 +18,22 @@ brew install remit-md/tap/remit
 curl -fsSL https://remit.md/install.sh | sh
 ```
 
+### Prebuilt binary (Linux)
+
+Static musl builds with zero dependencies — works on any Linux including Ubuntu 20.04+, Alpine, Colab, Docker scratch:
+
+```bash
+# x86_64
+curl -fsSL https://github.com/remit-md/remit-cli/releases/latest/download/remit-x86_64-unknown-linux-musl.tar.gz | tar xz
+sudo mv remit /usr/local/bin/
+
+# aarch64
+curl -fsSL https://github.com/remit-md/remit-cli/releases/latest/download/remit-aarch64-unknown-linux-musl.tar.gz | tar xz
+sudo mv remit /usr/local/bin/
+```
+
+> **Note:** musl builds do not include OS keychain support. Use `remit signer init --no-keychain` for encrypted file storage.
+
 ### Scoop (Windows)
 
 ```powershell
