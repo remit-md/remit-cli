@@ -12,8 +12,20 @@ pub enum SignerAction {
     Init(SignerInitArgs),
     /// Import an existing private key into the signer
     Import(SignerImportArgs),
+    /// Export the private key (for backup or migration)
+    Export(SignerExportArgs),
     /// Migrate a V24 (token-based) keystore to V25 (password-based)
     Migrate(SignerMigrateArgs),
+}
+
+#[derive(clap::Args)]
+pub struct SignerExportArgs {
+    /// Wallet name (default: "default")
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Path to keystore file (overrides name)
+    #[arg(long)]
+    pub keystore: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -50,6 +62,7 @@ pub async fn run(action: SignerAction, ctx: crate::commands::Context) -> Result<
     match action {
         SignerAction::Init(args) => run_init(args, ctx).await,
         SignerAction::Import(args) => run_import(args, ctx).await,
+        SignerAction::Export(args) => run_export(args).await,
         SignerAction::Migrate(args) => run_migrate(args).await,
     }
 }
@@ -320,6 +333,89 @@ fn run_import_enc(
     }
 
     Ok(())
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+//
+// SECURITY: Displays the raw private key. Requires interactive confirmation.
+
+async fn run_export(args: SignerExportArgs) -> Result<()> {
+    let wallet_name = args.name.unwrap_or_else(|| "default".to_string());
+
+    // Safety: require interactive confirmation
+    if !std::io::stderr().is_terminal() {
+        return Err(anyhow!(
+            "remit signer export requires an interactive terminal for confirmation."
+        ));
+    }
+
+    eprintln!("WARNING: This will display your private key in plaintext.");
+    eprintln!("Anyone who sees it can steal your funds.");
+    eprint!("Continue? [y/N] ");
+
+    let mut confirm = String::new();
+    std::io::stdin()
+        .read_line(&mut confirm)
+        .map_err(|e| anyhow!("failed to read confirmation: {e}"))?;
+    if confirm.trim().to_lowercase() != "y" {
+        eprintln!("Aborted.");
+        return Ok(());
+    }
+
+    // Resolve private key — keychain or .enc
+    if let Some(ref keystore_path) = args.keystore {
+        // Explicit .enc file
+        let key_file = keystore::load_file(std::path::Path::new(keystore_path))?;
+        let password = acquire_password_for_decrypt()?;
+        let signer = keystore::decrypt(&key_file, &password)?;
+        let key_bytes = signer.credential().to_bytes();
+        println!("0x{}", hex::encode(key_bytes));
+        return Ok(());
+    }
+
+    // Check .meta (keychain) first
+    if keyring::MetaFile::exists(&wallet_name)? {
+        let meta = keyring::MetaFile::load(&wallet_name)?;
+        if meta.storage == "keychain" {
+            let raw_key = keyring::load_key(&wallet_name)?;
+            println!("0x{}", hex::encode(*raw_key));
+            return Ok(());
+        }
+    }
+
+    // Fall back to .enc
+    let ks = keystore::Keystore::open()?;
+    if ks.exists(&wallet_name) {
+        let key_file = ks.load(&wallet_name)?;
+        let password = acquire_password_for_decrypt()?;
+        let signer = keystore::decrypt(&key_file, &password)?;
+        let key_bytes = signer.credential().to_bytes();
+        println!("0x{}", hex::encode(key_bytes));
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "No wallet '{}' found. Run: remit signer init",
+        wallet_name
+    ))
+}
+
+/// Acquire a password for decryption (no confirmation needed).
+fn acquire_password_for_decrypt() -> Result<String> {
+    if let Ok(password) = std::env::var("REMIT_KEY_PASSWORD") {
+        if !password.is_empty() {
+            return Ok(password);
+        }
+    }
+
+    if !std::io::stderr().is_terminal() {
+        return Err(anyhow!(
+            "No password source. Set REMIT_KEY_PASSWORD or run interactively."
+        ));
+    }
+
+    rpassword::prompt_password("Enter password: ")
+        .map_err(|e| anyhow!("failed to read password: {e}"))
 }
 
 // ── Migrate ────────────────────────────────────────────────────────────────

@@ -1,44 +1,49 @@
-//! `remit address` — print the wallet address from the keystore.
+//! `remit address` — print the wallet address.
 //!
-//! No password needed — address is stored in plaintext in the keystore JSON.
+//! No password or keychain access needed — address is public info stored in
+//! either `.meta` (keychain) or `.enc` (encrypted keystore) files.
 
 use anyhow::Result;
 use clap::Args;
 
-use crate::signer::keystore;
+use crate::signer::{keyring, keystore};
 
 #[derive(Args)]
 pub struct AddressArgs {
-    /// Path to keystore file (default: ~/.remit/keys/default.enc)
+    /// Path to keystore file (default: auto-detect from ~/.remit/keys/)
     #[arg(long)]
     pub keystore: Option<String>,
 }
 
 pub async fn run(args: AddressArgs) -> Result<()> {
-    let keystore_path = match &args.keystore {
-        Some(p) => std::path::PathBuf::from(p),
-        None => {
-            let ks = keystore::Keystore::open()?;
-            ks.key_path("default")
+    // Explicit --keystore flag: use that .enc file directly
+    if let Some(ref path) = args.keystore {
+        let key_file = keystore::load_file(std::path::Path::new(path))?;
+        if key_file.version == 1 {
+            anyhow::bail!("Keystore version 1 (V24). Run: remit signer migrate");
         }
-    };
-
-    if !keystore_path.exists() {
-        anyhow::bail!(
-            "No keystore found at {}. Run: remit signer init",
-            keystore_path.display()
-        );
+        print!("{}", key_file.address);
+        return Ok(());
     }
 
-    let key_file = keystore::load_file(&keystore_path)?;
-
-    // Reject V1 keystores
-    if key_file.version == 1 {
-        anyhow::bail!("Keystore version 1 (V24). Run: remit signer migrate");
+    // Check .meta file first (keychain — has address in plaintext)
+    if keyring::MetaFile::exists("default")? {
+        let meta = keyring::MetaFile::load("default")?;
+        print!("{}", meta.address);
+        return Ok(());
     }
 
-    // Print address — no decryption needed
-    print!("{}", key_file.address);
+    // Fall back to .enc file
+    let ks = keystore::Keystore::open()?;
+    let enc_path = ks.key_path("default");
+    if enc_path.exists() {
+        let key_file = keystore::load_file(&enc_path)?;
+        if key_file.version == 1 {
+            anyhow::bail!("Keystore version 1 (V24). Run: remit signer migrate");
+        }
+        print!("{}", key_file.address);
+        return Ok(());
+    }
 
-    Ok(())
+    anyhow::bail!("No wallet found. Run: remit signer init")
 }
