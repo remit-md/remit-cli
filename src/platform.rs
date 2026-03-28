@@ -23,9 +23,9 @@ pub fn env_var_hint(name: &str, placeholder: &str) -> String {
     }
 }
 
-/// Return platform-aware instructions for setting the key password.
+/// Return platform-aware instructions for setting the signer key password.
 pub fn password_hint() -> String {
-    env_var_hint("REMIT_KEY_PASSWORD", "<your-password>")
+    env_var_hint("REMIT_SIGNER_KEY", "<your-password>")
 }
 
 /// Return platform-aware instructions for setting a raw private key.

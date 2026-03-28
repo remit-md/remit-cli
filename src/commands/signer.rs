@@ -83,27 +83,42 @@ fn wallet_exists(name: &str) -> Result<bool> {
 /// Acquire a password for keystore encryption.
 ///
 /// Priority:
-///   1. REMIT_KEY_PASSWORD env var (non-interactive, used as-is)
-///   2. Interactive prompt on stderr (twice for confirmation)
-///   3. Error if non-interactive and no env var
+///   1. REMIT_SIGNER_KEY env var (non-interactive, used as-is)
+///   2. REMIT_KEY_PASSWORD env var (deprecated fallback)
+///   3. Interactive prompt on stderr (twice for confirmation)
+///   4. Error if non-interactive and no env var
 ///
 /// SECURITY: Password never appears in CLI arguments (visible in ps aux).
 fn acquire_password_with_confirmation() -> Result<String> {
-    // 1. Check env var
+    // 1. New env var
+    if let Ok(password) = std::env::var("REMIT_SIGNER_KEY") {
+        if password.is_empty() {
+            return Err(anyhow!(
+                "REMIT_SIGNER_KEY is set but empty. Password must be non-empty."
+            ));
+        }
+        return Ok(password);
+    }
+
+    // 2. Deprecated env var (backwards compat — remove in V28)
     if let Ok(password) = std::env::var("REMIT_KEY_PASSWORD") {
         if password.is_empty() {
             return Err(anyhow!(
                 "REMIT_KEY_PASSWORD is set but empty. Password must be non-empty."
             ));
         }
+        eprintln!(
+            "\u{26a0} REMIT_KEY_PASSWORD is deprecated and will be removed in a future release.\n  \
+             Set REMIT_SIGNER_KEY instead."
+        );
         return Ok(password);
     }
 
-    // 2. Interactive prompt (must be terminal)
+    // 3. Interactive prompt (must be terminal)
     if !std::io::stderr().is_terminal() {
         return Err(anyhow!(
             "No password source available.\n\
-             Set REMIT_KEY_PASSWORD in your environment, or run interactively."
+             Set REMIT_SIGNER_KEY in your environment, or run interactively."
         ));
     }
 
@@ -402,15 +417,27 @@ async fn run_export(args: SignerExportArgs) -> Result<()> {
 
 /// Acquire a password for decryption (no confirmation needed).
 fn acquire_password_for_decrypt() -> Result<String> {
+    // New env var
+    if let Ok(password) = std::env::var("REMIT_SIGNER_KEY") {
+        if !password.is_empty() {
+            return Ok(password);
+        }
+    }
+
+    // Deprecated env var (backwards compat — remove in V28)
     if let Ok(password) = std::env::var("REMIT_KEY_PASSWORD") {
         if !password.is_empty() {
+            eprintln!(
+                "\u{26a0} REMIT_KEY_PASSWORD is deprecated and will be removed in a future release.\n  \
+                 Set REMIT_SIGNER_KEY instead."
+            );
             return Ok(password);
         }
     }
 
     if !std::io::stderr().is_terminal() {
         return Err(anyhow!(
-            "No password source. Set REMIT_KEY_PASSWORD or run interactively."
+            "No password source. Set REMIT_SIGNER_KEY or run interactively."
         ));
     }
 

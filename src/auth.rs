@@ -15,7 +15,7 @@
 ///
 /// Signing backends:
 ///   1. Local — REMITMD_KEY env var (private key, signs in-process)
-///   2. Keystore — ~/.remit/keys/default.enc + REMIT_KEY_PASSWORD (added in C0.8)
+///   2. Keystore — ~/.remit/keys/default.enc + REMIT_SIGNER_KEY (added in C0.8)
 use anyhow::{anyhow, Result};
 use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
@@ -70,7 +70,7 @@ pub enum SigningBackend {
     Local(PrivateKeySigner),
     /// OS keychain (loaded via keyring crate, no password).
     Keychain(PrivateKeySigner),
-    /// Encrypted keystore (decrypted in-process with REMIT_KEY_PASSWORD).
+    /// Encrypted keystore (decrypted in-process with REMIT_SIGNER_KEY).
     Keystore(PrivateKeySigner),
 }
 
@@ -89,7 +89,7 @@ impl std::fmt::Debug for SigningBackend {
 /// Priority:
 ///   1. REMITMD_KEY — local private key (raw, in env)
 ///   2. OS keychain — .meta file exists + keychain available (no password)
-///   3. Keystore — .enc file exists + REMIT_KEY_PASSWORD set
+///   3. Keystore — .enc file exists + REMIT_SIGNER_KEY set (or deprecated REMIT_KEY_PASSWORD)
 ///   4. Error if none found
 pub fn resolve_signer() -> Result<SigningBackend> {
     // 1. Raw private key in env
@@ -112,25 +112,42 @@ pub fn resolve_signer() -> Result<SigningBackend> {
         }
     }
 
-    // 3. Keystore + password
-    if let Ok(password) = env::var("REMIT_KEY_PASSWORD") {
-        if !password.is_empty() {
-            if let Ok(ks) = crate::signer::keystore::Keystore::open() {
-                if ks.exists("default") {
-                    let key_file = ks
-                        .load("default")
-                        .map_err(|e| anyhow!("Cannot load keystore: {e}"))?;
-                    if key_file.version == 1 {
-                        return Err(anyhow!(
-                            "Keystore version 1 (V24). Run: remit signer migrate"
-                        ));
-                    }
-                    let signer =
-                        crate::signer::keystore::decrypt(&key_file, &password).map_err(|_| {
-                            anyhow!("Invalid password for keystore. Check REMIT_KEY_PASSWORD.")
-                        })?;
-                    return Ok(SigningBackend::Keystore(signer));
+    // 3. Keystore + password (REMIT_SIGNER_KEY preferred, REMIT_KEY_PASSWORD deprecated fallback)
+    let password = if let Ok(pw) = env::var("REMIT_SIGNER_KEY") {
+        if pw.is_empty() {
+            None
+        } else {
+            Some(pw)
+        }
+    } else if let Ok(pw) = env::var("REMIT_KEY_PASSWORD") {
+        if pw.is_empty() {
+            None
+        } else {
+            eprintln!(
+                "\u{26a0} REMIT_KEY_PASSWORD is deprecated and will be removed in a future release.\n  \
+                 Set REMIT_SIGNER_KEY instead."
+            );
+            Some(pw)
+        }
+    } else {
+        None
+    };
+    if let Some(password) = password {
+        if let Ok(ks) = crate::signer::keystore::Keystore::open() {
+            if ks.exists("default") {
+                let key_file = ks
+                    .load("default")
+                    .map_err(|e| anyhow!("Cannot load keystore: {e}"))?;
+                if key_file.version == 1 {
+                    return Err(anyhow!(
+                        "Keystore version 1 (V24). Run: remit signer migrate"
+                    ));
                 }
+                let signer =
+                    crate::signer::keystore::decrypt(&key_file, &password).map_err(|_| {
+                        anyhow!("Invalid password for keystore. Check REMIT_SIGNER_KEY.")
+                    })?;
+                return Ok(SigningBackend::Keystore(signer));
             }
         }
     }
