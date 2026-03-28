@@ -88,13 +88,18 @@ impl MetaFile {
 }
 
 // ── Keychain operations ───────────────────────────────────────────────────
+//
+// Gated behind the `keychain` feature. On musl/static builds (no libsecret),
+// these stubs return "not available" so the CLI falls back to .enc files.
 
 /// Check if the OS keychain is available for use.
 ///
 /// Returns `true` if the platform keychain daemon is running and accessible.
 /// Returns `false` in headless environments (SSH, Docker, CI, WSL without bridge).
+/// Always returns `false` when compiled without the `keychain` feature (musl builds).
 ///
 /// K5: Non-destructive — never stores, loads, or deletes.
+#[cfg(feature = "keychain")]
 pub fn is_available() -> bool {
     // Try creating an entry — if the platform has no keychain backend, this fails.
     let entry = match keyring::Entry::new(KEYCHAIN_SERVICE, "__remit_probe__") {
@@ -111,12 +116,18 @@ pub fn is_available() -> bool {
     }
 }
 
+#[cfg(not(feature = "keychain"))]
+pub fn is_available() -> bool {
+    false
+}
+
 /// Store a raw 32-byte private key in the OS keychain.
 ///
 /// Label format: wallet name (e.g., "default").
 /// The keychain entry uses service="remit", user=label.
 ///
 /// K6: Takes `&[u8; 32]` — caller controls key lifetime via Zeroizing.
+#[cfg(feature = "keychain")]
 pub fn store_key(label: &str, key: &[u8; 32]) -> Result<()> {
     let entry =
         keyring::Entry::new(KEYCHAIN_SERVICE, label).map_err(|e| anyhow!("keychain error: {e}"))?;
@@ -125,10 +136,18 @@ pub fn store_key(label: &str, key: &[u8; 32]) -> Result<()> {
         .map_err(|e| anyhow!("failed to store key in OS keychain: {e}"))
 }
 
+#[cfg(not(feature = "keychain"))]
+pub fn store_key(_label: &str, _key: &[u8; 32]) -> Result<()> {
+    Err(anyhow!(
+        "OS keychain not available (static build). Use --no-keychain for encrypted file storage."
+    ))
+}
+
 /// Retrieve a raw 32-byte private key from the OS keychain.
 ///
 /// K1: Returns `Zeroizing<[u8; 32]>` — zeroed on drop.
 /// K3: Error messages never include key material.
+#[cfg(feature = "keychain")]
 pub fn load_key(label: &str) -> Result<Zeroizing<[u8; 32]>> {
     let entry =
         keyring::Entry::new(KEYCHAIN_SERVICE, label).map_err(|e| anyhow!("keychain error: {e}"))?;
@@ -155,7 +174,15 @@ pub fn load_key(label: &str) -> Result<Zeroizing<[u8; 32]>> {
     Ok(arr)
 }
 
+#[cfg(not(feature = "keychain"))]
+pub fn load_key(_label: &str) -> Result<Zeroizing<[u8; 32]>> {
+    Err(anyhow!(
+        "OS keychain not available (static build). Use encrypted .enc keystore instead."
+    ))
+}
+
 /// Delete a key from the OS keychain.
+#[cfg(feature = "keychain")]
 pub fn delete_key(label: &str) -> Result<()> {
     let entry =
         keyring::Entry::new(KEYCHAIN_SERVICE, label).map_err(|e| anyhow!("keychain error: {e}"))?;
@@ -165,6 +192,11 @@ pub fn delete_key(label: &str) -> Result<()> {
         }
         other => anyhow!("failed to delete key from OS keychain: {other}"),
     })
+}
+
+#[cfg(not(feature = "keychain"))]
+pub fn delete_key(_label: &str) -> Result<()> {
+    Err(anyhow!("OS keychain not available (static build)."))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────
@@ -243,7 +275,7 @@ mod tests {
         assert!(path_str.ends_with("default.meta"));
     }
 
-    // ── Keychain availability (platform-dependent) ────────────────────────
+    // ── Keychain availability (platform-dependent, requires keychain feature) ──
 
     #[test]
     fn is_available_does_not_panic() {
@@ -254,8 +286,10 @@ mod tests {
     // ── Keychain store/load/delete roundtrip ──────────────────────────────
     // These tests use the REAL OS keychain. They only run locally,
     // not in CI (where is_available() returns false).
+    // Gated on `keychain` feature — musl builds skip these entirely.
 
     #[test]
+    #[cfg(feature = "keychain")]
     fn keychain_roundtrip_if_available() {
         if !is_available() {
             eprintln!("skipping keychain_roundtrip_if_available: no keychain available");
@@ -281,6 +315,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "keychain")]
     fn load_nonexistent_key_fails() {
         if !is_available() {
             eprintln!("skipping load_nonexistent_key_fails: no keychain available");
@@ -297,6 +332,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "keychain")]
     fn delete_nonexistent_key_fails() {
         if !is_available() {
             eprintln!("skipping delete_nonexistent_key_fails: no keychain available");
@@ -308,6 +344,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "keychain")]
     fn error_messages_contain_no_key_material() {
         if !is_available() {
             return;
