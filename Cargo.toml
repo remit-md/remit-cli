@@ -15,6 +15,10 @@ rust-version = "1.75"
 name = "remit"
 path = "src/main.rs"
 
+[features]
+default = ["keychain"]
+keychain = ["dep:keyring"]
+
 [dependencies]
 clap = { version = "4", features = ["derive", "env", "string"] }
 tokio = { version = "1", features = ["full"] }
@@ -41,7 +45,7 @@ comfy-table = "7"
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
 rpassword = "7"
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"], optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
