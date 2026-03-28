@@ -16,18 +16,19 @@ pub struct FundArgs {
     #[arg(long)]
     pub name: Option<String>,
 
-    /// Message shown on the fund page explaining the request
+    /// Message shown on the fund page (repeatable for multiple messages)
     #[arg(long)]
-    pub message: Option<String>,
+    pub message: Vec<String>,
 }
 
 pub async fn run(args: FundArgs, ctx: Context) -> Result<()> {
     let client = RemitClient::new(ctx.testnet).await;
+    let messages: Vec<&str> = args.message.iter().map(|s| s.as_str()).collect();
     let resp = client
         .link_fund(
             args.amount.as_deref(),
             args.name.as_deref(),
-            args.message.as_deref(),
+            &messages,
         )
         .await?;
 

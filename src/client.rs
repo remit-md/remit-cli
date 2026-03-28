@@ -526,7 +526,7 @@ impl RemitClient {
         &self,
         amount: Option<&str>,
         name: Option<&str>,
-        message: Option<&str>,
+        messages: &[&str],
     ) -> Result<CreateLinkResponse> {
         let mut body = serde_json::json!({});
         if let Some(amt) = amount {
@@ -535,10 +535,12 @@ impl RemitClient {
         if let Some(n) = name {
             body["agent_name"] = serde_json::Value::String(n.to_string());
         }
-        if let Some(msg) = message {
-            body["messages"] = serde_json::json!([
-                { "role": "agent", "text": msg }
-            ]);
+        if !messages.is_empty() {
+            let msgs: Vec<_> = messages
+                .iter()
+                .map(|msg| serde_json::json!({ "role": "agent", "text": msg }))
+                .collect();
+            body["messages"] = serde_json::Value::Array(msgs);
         }
         self.post("/links/fund", body).await
     }
