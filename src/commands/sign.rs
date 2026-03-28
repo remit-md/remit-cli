@@ -13,11 +13,13 @@
 
 use std::io::{self, Read, Write};
 
+use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
 use anyhow::Result;
 use clap::Args;
+use zeroize::Zeroizing;
 
-use crate::signer::{eip712, keystore};
+use crate::signer::{eip712, keyring, keystore};
 
 #[derive(Args)]
 pub struct SignArgs {
@@ -68,55 +70,15 @@ pub async fn run(args: SignArgs) -> Result<()> {
         emit_error("invalid_input", "stdin is empty");
     }
 
-    // Resolve password (I3: never from CLI args, I8: non-interactive detection).
-    let password = resolve_password(&args.password_file);
-
-    // Load keystore file.
-    let keystore_path = match &args.keystore {
-        Some(p) => std::path::PathBuf::from(p),
-        None => {
-            let Ok(ks) = keystore::Keystore::open() else {
-                emit_error("keystore_error", "Cannot open keystore directory");
-            };
-            ks.key_path("default")
-        }
-    };
-
-    if !keystore_path.exists() {
-        emit_error(
-            "no_keystore",
-            &format!(
-                "No keystore found at {}. Run: remit signer init",
-                keystore_path.display()
-            ),
-        );
-    }
-
-    let key_file = match keystore::load_file(&keystore_path) {
-        Ok(f) => f,
-        Err(e) => emit_error("keystore_error", &format!("Cannot read keystore: {e}")),
-    };
-
-    // I9: Reject V1 keystores.
-    if key_file.version == 1 {
-        emit_error(
-            "v1_keystore",
-            "Keystore version 1 (V24). Run: remit signer migrate",
-        );
-    }
-
-    // Compute the digest to sign BEFORE decrypting the key (I7).
+    // Compute the digest to sign BEFORE loading the key (I7).
     let digest: [u8; 32] = if args.eip712 {
         compute_eip712_digest(input)
     } else {
         parse_hex_digest(input)
     };
 
-    // I2: Decrypt key into Zeroizing buffer. Dropped at end of scope.
-    let signer = match keystore::decrypt(&key_file, &password) {
-        Ok(s) => s,
-        Err(_) => emit_error("decrypt_failed", "Invalid password for keystore"),
-    };
+    // I2: Resolve signer — keychain first, then .enc file.
+    let signer = resolve_signer(&args);
 
     // I5: Sign with RFC 6979 deterministic nonce.
     let sig = match signer.sign_hash_sync(&digest.into()) {
@@ -132,6 +94,98 @@ pub async fn run(args: SignArgs) -> Result<()> {
 
     // Key is dropped here (Zeroize via PrivateKeySigner::drop).
     Ok(())
+}
+
+/// Resolve the private key signer.
+///
+/// Priority:
+///   1. --keystore flag → load that specific .enc file (password required)
+///   2. ~/.remit/keys/default.meta → load from OS keychain (no password)
+///   3. ~/.remit/keys/default.enc → load from encrypted file (password required)
+///   4. Error: no key found
+fn resolve_signer(args: &SignArgs) -> PrivateKeySigner {
+    if let Some(ref path) = args.keystore {
+        // Explicit keystore path — always use .enc decryption
+        return resolve_signer_from_enc(&std::path::PathBuf::from(path), &args.password_file);
+    }
+
+    // Check for .meta file (keychain path) first
+    let meta_exists = keyring::MetaFile::exists("default").unwrap_or(false);
+    if meta_exists {
+        match keyring::MetaFile::load("default") {
+            Ok(meta) if meta.storage == "keychain" => {
+                // Load raw key from OS keychain
+                let raw_key = match keyring::load_key("default") {
+                    Ok(k) => k,
+                    Err(e) => emit_error(
+                        "keychain_error",
+                        &format!("Failed to load key from OS keychain: {e}"),
+                    ),
+                };
+                return signer_from_raw_key(&raw_key);
+            }
+            Ok(_) => {}  // storage != "keychain", fall through to .enc
+            Err(_) => {} // corrupt meta file, fall through
+        }
+    }
+
+    // Check for .enc file
+    let Ok(ks) = keystore::Keystore::open() else {
+        emit_error("keystore_error", "Cannot open keystore directory");
+    };
+    let enc_path = ks.key_path("default");
+    if enc_path.exists() {
+        return resolve_signer_from_enc(&enc_path, &args.password_file);
+    }
+
+    emit_error("no_keystore", "No wallet found. Run: remit signer init");
+}
+
+/// Load a signer from an encrypted .enc file (requires password).
+fn resolve_signer_from_enc(
+    keystore_path: &std::path::Path,
+    password_file: &Option<String>,
+) -> PrivateKeySigner {
+    if !keystore_path.exists() {
+        emit_error(
+            "no_keystore",
+            &format!(
+                "No keystore found at {}. Run: remit signer init",
+                keystore_path.display()
+            ),
+        );
+    }
+
+    let key_file = match keystore::load_file(keystore_path) {
+        Ok(f) => f,
+        Err(e) => emit_error("keystore_error", &format!("Cannot read keystore: {e}")),
+    };
+
+    // I9: Reject V1 keystores.
+    if key_file.version == 1 {
+        emit_error(
+            "v1_keystore",
+            "Keystore version 1 (V24). Run: remit signer migrate",
+        );
+    }
+
+    let password = resolve_password(password_file);
+    match keystore::decrypt(&key_file, &password) {
+        Ok(s) => s,
+        Err(_) => emit_error("decrypt_failed", "Invalid password for keystore"),
+    }
+}
+
+/// Create a PrivateKeySigner from raw 32-byte key material.
+fn signer_from_raw_key(raw_key: &Zeroizing<[u8; 32]>) -> PrivateKeySigner {
+    let key_bytes: [u8; 32] = **raw_key;
+    match PrivateKeySigner::from_bytes(&key_bytes.into()) {
+        Ok(s) => s,
+        Err(_) => emit_error(
+            "key_error",
+            "Key from OS keychain is not a valid secp256k1 key",
+        ),
+    }
 }
 
 /// Resolve the password for keystore decryption.
