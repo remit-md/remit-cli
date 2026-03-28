@@ -37,7 +37,7 @@ jobs:
       - name: Run acceptance tests
         id: tests
         run: |
-          cargo test --test acceptance -- --ignored --test-threads=1 2>&1 | tee acceptance-output.txt
+          cargo test --test acceptance -- --ignored --test-threads=1 --nocapture 2>&1 | tee acceptance-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           REMITMD_KEY: "unused-tests-generate-own-keys"
@@ -52,16 +52,16 @@ jobs:
           echo "|------|--------|" >> "$GITHUB_STEP_SUMMARY"
 
           tests=(
-            "wallet_generation_produces_valid_address"
-            "mint_funds_wallet_and_balance_reflects"
-            "cli_mint_command_works"
-            "cli_status_returns_wallet_info"
-            "cli_pay_direct_with_auto_permit"
-            "cli_escrow_create_claim_start_release"
-            "cli_tab_open_close"
-            "cli_stream_open_close"
-            "cli_bounty_post_submit_award"
-            "cli_deposit_create"
+            "t01_wallet_generation"
+            "t02_mint_and_balance"
+            "t03_status"
+            "t04_pay_direct"
+            "t05_escrow_lifecycle"
+            "t06_tab_lifecycle"
+            "t07_stream_lifecycle"
+            "t08_bounty_lifecycle"
+            "t09_deposit_create"
+            "t10_cli_mint"
           )
 
           for test in "${tests[@]}"; do

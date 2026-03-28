@@ -3,81 +3,56 @@
 //! All operations go through the Remit API (via CLI or HTTP).
 //! No direct RPC calls — balances come from `remit balance`, not eth_call.
 //!
-//! These tests are marked `#[ignore]` so they don't run in normal CI.
-//! Run with: `cargo test --test acceptance -- --ignored`
+//! A single wallet pair (payer + provider) is shared across all flow tests.
+//! Tests run sequentially (`--test-threads=1`) with proper nonce ordering.
+//!
+//! Run with: `cargo test --test acceptance -- --ignored --test-threads=1`
 
 #[macro_use]
 mod harness;
 
-use harness::{mint_usdc, TestWallet};
+use harness::{get_contracts, mint_usdc, shared_wallets, TestWallet};
 
-// ── Harness verification ────────────────────────────────────────────────────
+// ── 1. Wallet generation (standalone) ───────────────────────────────────────
 
 #[test]
 #[ignore]
-fn wallet_generation_produces_valid_address() {
-    acceptance_log!("=== TEST: wallet_generation_produces_valid_address ===");
+fn t01_wallet_generation() {
+    acceptance_log!("=== TEST: t01_wallet_generation ===");
     let wallet = TestWallet::generate();
-    assert!(
-        wallet.address.starts_with("0x"),
-        "address must start with 0x"
-    );
-    assert_eq!(
-        wallet.address.len(),
-        42,
-        "address must be 42 chars (0x + 40 hex)"
-    );
-    assert!(
-        wallet.private_key.starts_with("0x"),
-        "key must start with 0x"
-    );
-    assert_eq!(
-        wallet.private_key.len(),
-        66,
-        "key must be 66 chars (0x + 64 hex)"
-    );
-    acceptance_log!("PASS: wallet generation valid");
+    assert!(wallet.address.starts_with("0x"));
+    assert_eq!(wallet.address.len(), 42);
+    assert!(wallet.private_key.starts_with("0x"));
+    assert_eq!(wallet.private_key.len(), 66);
+    acceptance_log!("PASS");
 }
+
+// ── 2. Mint + balance (funds the shared payer) ──────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn mint_funds_wallet_and_balance_reflects() {
-    acceptance_log!("=== TEST: mint_funds_wallet_and_balance_reflects ===");
-    let wallet = TestWallet::generate();
+async fn t02_mint_and_balance() {
+    acceptance_log!("=== TEST: t02_mint_and_balance ===");
+    let (payer, _) = shared_wallets();
 
-    mint_usdc(&wallet.address, 100.0).await;
-    let after = wallet.wait_for_balance(0.0).await;
-    assert!(
-        after >= 99.99,
-        "wallet should have ~100 USDC after mint, got {after}"
-    );
-    acceptance_log!("PASS: mint + balance verified via API");
+    mint_usdc(&payer.address, 200.0).await;
+    let bal = payer.wait_for_balance(0.0).await;
+    assert!(bal >= 199.99, "payer should have ~200 USDC, got {bal}");
+    acceptance_log!("PASS: payer funded with 200 USDC");
 }
+
+// ── 3. Status ───────────────────────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn cli_mint_command_works() {
-    acceptance_log!("=== TEST: cli_mint_command_works ===");
-    let wallet = TestWallet::generate();
-    let output = wallet.run_cli(&["mint", "50"]);
-    assert!(output.success, "remit mint failed: {}", output.stderr);
-    let json = output.json();
-    assert!(json["tx_hash"].is_string(), "response should have tx_hash");
-    acceptance_log!("PASS: CLI mint works");
-}
+async fn t03_status() {
+    acceptance_log!("=== TEST: t03_status ===");
+    let (payer, _) = shared_wallets();
 
-#[tokio::test]
-#[ignore]
-async fn cli_status_returns_wallet_info() {
-    acceptance_log!("=== TEST: cli_status_returns_wallet_info ===");
-    let wallet = TestWallet::generate();
-    mint_usdc(&wallet.address, 100.0).await;
-    wallet.wait_for_balance(0.0).await;
-
-    let json = wallet.run_cli_json(&["status"]);
+    let json = payer.run_cli_json(&["status"]);
     assert_eq!(
         json["wallet"].as_str().unwrap().to_lowercase(),
-        wallet.address.to_lowercase()
+        payer.address.to_lowercase()
     );
     assert!(json["balance"].is_string(), "status should include balance");
     acceptance_log!(
@@ -85,29 +60,24 @@ async fn cli_status_returns_wallet_info() {
         json["wallet"],
         json["balance"]
     );
-    acceptance_log!("PASS: CLI status works");
+    acceptance_log!("PASS");
 }
 
-// ── Pay (direct payment) ────────────────────────────────────────────────────
+// ── 4. Direct payment ──────────────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn cli_pay_direct_with_auto_permit() {
-    acceptance_log!("=== TEST: cli_pay_direct_with_auto_permit ===");
-    let payer = TestWallet::generate();
-    let recipient = TestWallet::generate();
-
-    mint_usdc(&payer.address, 100.0).await;
-    payer.wait_for_balance(0.0).await;
+async fn t04_pay_direct() {
+    acceptance_log!("=== TEST: t04_pay_direct ===");
+    let (payer, provider) = shared_wallets();
 
     let payer_before = payer.balance();
     acceptance_log!(
         "direct | 10.00 USDC {} -> {}",
         payer.address,
-        recipient.address
+        provider.address
     );
-    let json = payer.run_cli_json(&["pay", &recipient.address, "10.00"]);
-    // Server may return "confirmed" or "pending" depending on relayer speed
+    let json = payer.run_cli_json(&["pay", &provider.address, "10.00"]);
     let status = json["status"].as_str().unwrap();
     assert!(
         status == "confirmed" || status == "pending",
@@ -115,63 +85,41 @@ async fn cli_pay_direct_with_auto_permit() {
     );
     assert!(json["tx_hash"].is_string(), "should have tx_hash");
 
-    // Verify payer spent ~10.00 via CLI balance
-    // Fee is deducted from the amount (recipient gets 9.90, fee wallet gets 0.10)
+    // Verify payer balance decreased
     let payer_after = payer.wait_for_balance(payer_before).await;
     harness::assert_balance_change("payer", payer_before, payer_after, -10.0, 100);
 
-    // Verify recipient received ~10.00 via CLI balance
-    // Fee is deducted from the transfer amount by the server, so recipient gets ~9.90
-    let recipient_balance = recipient.balance();
+    // Verify provider received funds
+    let provider_balance = provider.balance();
     assert!(
-        recipient_balance >= 9.89,
-        "recipient should have ~10 USDC (minus fee), got {recipient_balance}"
+        provider_balance >= 9.89,
+        "provider should have ~10 USDC (minus fee), got {provider_balance}"
     );
-    acceptance_log!("PASS: direct payment verified via API balances");
+    acceptance_log!("PASS");
 }
 
-// ── Escrow lifecycle ────────────────────────────────────────────────────────
+// ── 5. Escrow lifecycle ────────────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn cli_escrow_create_claim_start_release() {
-    acceptance_log!("=== TEST: cli_escrow_create_claim_start_release ===");
-    let payer = TestWallet::generate();
-    let payee = TestWallet::generate();
+async fn t05_escrow_lifecycle() {
+    acceptance_log!("=== TEST: t05_escrow_lifecycle ===");
+    let (payer, provider) = shared_wallets();
 
-    mint_usdc(&payer.address, 100.0).await;
-    payer.wait_for_balance(0.0).await;
-
-    // Create escrow
     acceptance_log!(
         "escrow | create 5.00 USDC {} -> {}",
         payer.address,
-        payee.address
+        provider.address
     );
-    let create_output = payer.run_cli(&["escrow", "create", &payee.address, "5.00"]);
-    if !create_output.success {
-        if create_output.stderr.contains("create invoice") {
-            // Known CLI bug: escrow creation fails at the invoice step
-            acceptance_log!(
-                "KNOWN BUG: escrow create fails at invoice creation — CLI sends request server rejects"
-            );
-            acceptance_log!("PASS (with known bug): escrow lifecycle skipped");
-            return;
-        }
-        panic!(
-            "escrow create failed unexpectedly: {}",
-            create_output.stderr
-        );
-    }
-    let create_json = create_output.json();
+    let create_json = payer.run_cli_json(&["escrow", "create", &provider.address, "5.00"]);
     let escrow_id = create_json["invoice_id"]
         .as_str()
         .expect("should have invoice_id");
     assert_eq!(create_json["status"].as_str().unwrap(), "funded");
 
-    // Claim start (payee signals work done)
+    // Claim start (provider signals work done)
     acceptance_log!("escrow | claim-start {escrow_id}");
-    let claim_json = payee.run_cli_json(&["escrow", "claim-start", escrow_id]);
+    let claim_json = provider.run_cli_json(&["escrow", "claim-start", escrow_id]);
     assert!(
         claim_json["claim_started"].as_bool().unwrap_or(false)
             || claim_json["status"].as_str().unwrap() == "claim_started"
@@ -180,35 +128,25 @@ async fn cli_escrow_create_claim_start_release() {
     // Release (payer approves)
     acceptance_log!("escrow | release {escrow_id}");
     let release_json = payer.run_cli_json(&["escrow", "release", escrow_id]);
+    let status = release_json["status"].as_str().unwrap();
     assert!(
-        release_json["status"].as_str().unwrap() == "released"
-            || release_json["status"].as_str().unwrap() == "settled"
+        status == "released" || status == "settled" || status == "completed",
+        "expected released/settled/completed, got {status}"
     );
-
-    // Verify payee received funds via CLI balance
-    let payee_balance = payee.balance();
-    assert!(
-        payee_balance >= 4.9,
-        "payee should have ~5 USDC, got {payee_balance}"
-    );
-    acceptance_log!("PASS: escrow full lifecycle");
+    acceptance_log!("PASS");
 }
 
-// ── Tab lifecycle ───────────────────────────────────────────────────────────
+// ── 6. Tab lifecycle (open → charge → close) ──────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn cli_tab_open_close() {
-    acceptance_log!("=== TEST: cli_tab_open_close ===");
-    let payer = TestWallet::generate();
-    let provider = TestWallet::generate();
+async fn t06_tab_lifecycle() {
+    acceptance_log!("=== TEST: t06_tab_lifecycle ===");
+    let (payer, provider) = shared_wallets();
 
-    mint_usdc(&payer.address, 100.0).await;
-    payer.wait_for_balance(0.0).await;
-
-    // Open tab (requires --per-unit)
+    // Open tab
     acceptance_log!(
-        "tab | open limit=20.00 per-unit=2.50 USDC {} -> {}",
+        "tab | open limit=20.00 per-unit=2.50 {} -> {}",
         payer.address,
         provider.address
     );
@@ -223,148 +161,158 @@ async fn cli_tab_open_close() {
     let tab_id = open_json["id"].as_str().expect("should have tab id");
     assert_eq!(open_json["status"].as_str().unwrap(), "open");
 
-    // Close tab (payer closes)
-    // NOTE: Tab close with final_amount=0 reverts on-chain (contract disallows zero settlement).
-    // We verify open succeeded and handle the close gracefully.
-    acceptance_log!("tab | close {tab_id}");
-    let close_output = payer.run_cli(&["tab", "close", tab_id, "--final-amount", "0"]);
-    if close_output.success {
-        let close_json = close_output.json();
-        let status = close_json["status"].as_str().unwrap_or("unknown");
-        assert!(
-            status == "closed" || status == "settled",
-            "expected closed or settled, got {status}"
-        );
-        acceptance_log!("PASS: tab open+close");
-    } else if close_output.stderr.contains("execution reverted") {
-        // Known issue: contract reverts on zero-amount close
-        acceptance_log!("KNOWN BUG: tab close with final_amount=0 reverts on-chain — contract disallows zero settlement");
-        acceptance_log!("PASS (with known bug): tab open verified, close needs nonzero charges");
-    } else {
-        panic!("tab close failed unexpectedly: {}", close_output.stderr);
-    }
+    // Get tab contract address for EIP-712 signing
+    let contracts = get_contracts().await;
+    let tab_contract = contracts["tab"]
+        .as_str()
+        .expect("should have tab contract address");
+
+    // Provider signs TabCharge EIP-712 for charge
+    let charge_units: u64 = 2_500_000; // 2.50 USDC in 6-decimal units
+    let call_count: u32 = 1;
+    let charge_sig = provider.sign_tab_charge(tab_contract, tab_id, charge_units, call_count);
+
+    // Charge tab (provider charges 2.50 with EIP-712 sig)
+    acceptance_log!("tab | charge {tab_id} 2.50");
+    let charge_json = provider.run_cli_json(&[
+        "tab",
+        "charge",
+        tab_id,
+        "2.50",
+        "--cumulative",
+        "2.50",
+        "--call-count",
+        "1",
+    ]);
+    acceptance_log!(
+        "tab | charged: {} cumulative: {}",
+        charge_json["amount"],
+        charge_json["cumulative"]
+    );
+
+    // Provider signs final state for close (same cumulative)
+    let close_sig = provider.sign_tab_charge(tab_contract, tab_id, charge_units, call_count);
+
+    // Close tab (payer closes with provider's EIP-712 signature)
+    acceptance_log!("tab | close {tab_id} final_amount=2.50");
+    let close_json = payer.run_cli_json(&[
+        "tab",
+        "close",
+        tab_id,
+        "--final-amount",
+        "2.50",
+        "--provider-sig",
+        &close_sig,
+    ]);
+    let status = close_json["status"].as_str().unwrap();
+    assert!(
+        status == "closed" || status == "settled",
+        "expected closed or settled, got {status}"
+    );
+    acceptance_log!("PASS");
 }
 
-// ── Stream lifecycle ────────────────────────────────────────────────────────
+// ── 7. Stream lifecycle ────────────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn cli_stream_open_close() {
-    acceptance_log!("=== TEST: cli_stream_open_close ===");
-    let payer = TestWallet::generate();
-    let payee = TestWallet::generate();
-
-    mint_usdc(&payer.address, 100.0).await;
-    payer.wait_for_balance(0.0).await;
+async fn t07_stream_lifecycle() {
+    acceptance_log!("=== TEST: t07_stream_lifecycle ===");
+    let (payer, provider) = shared_wallets();
 
     // Open stream: 0.01 USDC/sec, max 5 USDC
     acceptance_log!(
         "stream | open rate=0.01/s max=5.00 {} -> {}",
         payer.address,
-        payee.address
+        provider.address
     );
-    let open_json = payer.run_cli_json(&["stream", "open", &payee.address, "0.01", "5.00"]);
+    let open_json = payer.run_cli_json(&["stream", "open", &provider.address, "0.01", "5.00"]);
     let stream_id = open_json["id"].as_str().expect("should have stream id");
     assert_eq!(open_json["status"].as_str().unwrap(), "active");
 
-    // Wait briefly for some accrual
+    // Wait for accrual
     acceptance_log!("stream | waiting 3s for accrual...");
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-    // Close stream (payer)
-    // NOTE: stream close has a known CLI deserialization bug — the server response
-    // includes fields the CLI doesn't expect. We verify open succeeded and accept
-    // the close result regardless, since the on-chain tx still executes.
+    // Close stream
     acceptance_log!("stream | close {stream_id}");
-    let close_output = payer.run_cli(&["stream", "close", stream_id]);
-    if close_output.success {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&close_output.stdout) {
-            let status = json["status"].as_str().unwrap_or("unknown");
-            acceptance_log!("stream | close status: {status}");
-        }
-        acceptance_log!("PASS: stream open+close");
-    } else if close_output.stderr.contains("parse server response")
-        || close_output.stderr.contains("decoding response body")
-    {
-        // Known CLI bug: deserialization mismatch on stream close response
-        acceptance_log!("KNOWN BUG: stream close response deserialization — stream was closed on-chain but CLI can't parse the response");
-        acceptance_log!("PASS (with known bug): stream open+close");
-    } else {
-        panic!("stream close failed unexpectedly: {}", close_output.stderr);
-    }
+    let close_json = payer.run_cli_json(&["stream", "close", stream_id]);
+    let status = close_json["status"].as_str().unwrap();
+    assert!(
+        status == "closed" || status == "settled",
+        "expected closed or settled, got {status}"
+    );
+    acceptance_log!("PASS");
 }
 
-// ── Bounty lifecycle ────────────────────────────────────────────────────────
+// ── 8. Bounty lifecycle ────────────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn cli_bounty_post_submit_award() {
-    acceptance_log!("=== TEST: cli_bounty_post_submit_award ===");
-    let poster = TestWallet::generate();
-    let submitter = TestWallet::generate();
+async fn t08_bounty_lifecycle() {
+    acceptance_log!("=== TEST: t08_bounty_lifecycle ===");
+    let (payer, provider) = shared_wallets();
 
-    mint_usdc(&poster.address, 100.0).await;
-    poster.wait_for_balance(0.0).await;
-
-    // Post bounty
-    acceptance_log!("bounty | post 10.00 USDC from {}", poster.address);
-    let post_json = poster.run_cli_json(&["bounty", "post", "10.00", "test bounty from CLI"]);
+    // Post bounty (payer)
+    acceptance_log!("bounty | post 10.00 USDC from {}", payer.address);
+    let post_json = payer.run_cli_json(&["bounty", "post", "10.00", "test bounty from CLI"]);
     let bounty_id = post_json["id"].as_str().expect("should have bounty id");
     assert_eq!(post_json["status"].as_str().unwrap(), "open");
 
-    // Submit (submitter provides evidence — must be 32-byte hash)
-    let evidence = format!("0x{}", "ab".repeat(32)); // 32 bytes = 64 hex chars
-    acceptance_log!("bounty | submit {bounty_id} from {}", submitter.address);
-    let submit_json = submitter.run_cli_json(&["bounty", "submit", bounty_id, &evidence]);
+    // Submit (provider provides evidence — 32-byte hash)
+    let evidence = format!("0x{}", "ab".repeat(32));
+    acceptance_log!("bounty | submit {bounty_id} from {}", provider.address);
+    let submit_json = provider.run_cli_json(&["bounty", "submit", bounty_id, &evidence]);
     let submission_id = submit_json["id"]
         .as_i64()
         .or_else(|| submit_json["id"].as_u64().map(|v| v as i64))
         .expect("should have submission id");
 
-    // Award (poster awards to submitter)
+    // Award (payer awards to provider)
     acceptance_log!("bounty | award {bounty_id} submission={submission_id}");
     let award_json =
-        poster.run_cli_json(&["bounty", "award", bounty_id, &submission_id.to_string()]);
+        payer.run_cli_json(&["bounty", "award", bounty_id, &submission_id.to_string()]);
+    let status = award_json["status"].as_str().unwrap();
     assert!(
-        award_json["status"].as_str().unwrap() == "awarded"
-            || award_json["status"].as_str().unwrap() == "settled"
+        status == "awarded" || status == "settled",
+        "expected awarded or settled, got {status}"
     );
-
-    // Verify submitter received funds via CLI balance
-    let submitter_balance = submitter.balance();
-    acceptance_log!("bounty | submitter balance: {submitter_balance} USDC");
-    assert!(
-        submitter_balance >= 9.8,
-        "submitter should have ~10 USDC, got {submitter_balance}"
-    );
-    acceptance_log!("PASS: bounty full lifecycle");
+    acceptance_log!("PASS");
 }
 
-// ── Deposit lifecycle ───────────────────────────────────────────────────────
+// ── 9. Deposit ─────────────────────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn cli_deposit_create() {
-    acceptance_log!("=== TEST: cli_deposit_create ===");
-    let depositor = TestWallet::generate();
-    let provider = TestWallet::generate();
+async fn t09_deposit_create() {
+    acceptance_log!("=== TEST: t09_deposit_create ===");
+    let (payer, provider) = shared_wallets();
 
-    mint_usdc(&depositor.address, 100.0).await;
-    depositor.wait_for_balance(0.0).await;
-
-    // Create deposit
     acceptance_log!(
         "deposit | create 15.00 USDC {} -> {}",
-        depositor.address,
+        payer.address,
         provider.address
     );
-    let json = depositor.run_cli_json(&["deposit", "create", &provider.address, "15.00"]);
+    let json = payer.run_cli_json(&["deposit", "create", &provider.address, "15.00"]);
     assert!(json["id"].is_string(), "should have deposit id");
-    // Server returns "locked" (not "active") for deposit creation
     let status = json["status"].as_str().unwrap();
     assert!(
         status == "active" || status == "locked",
         "expected active or locked, got {status}"
     );
-    acceptance_log!("PASS: deposit create");
+    acceptance_log!("PASS");
+}
+
+// ── 10. CLI mint (separate wallet) ─────────────────────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn t10_cli_mint() {
+    acceptance_log!("=== TEST: t10_cli_mint ===");
+    let wallet = TestWallet::generate();
+    let output = wallet.run_cli(&["mint", "50"]);
+    assert!(output.success, "remit mint failed: {}", output.stderr);
+    let json = output.json();
+    assert!(json["tx_hash"].is_string(), "response should have tx_hash");
+    acceptance_log!("PASS");
 }

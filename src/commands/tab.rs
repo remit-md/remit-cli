@@ -56,6 +56,9 @@ pub struct TabCloseArgs {
     /// Final settlement amount in USDC
     #[arg(long)]
     pub final_amount: Option<String>,
+    /// Provider EIP-712 signature (hex, from provider's signTabCharge)
+    #[arg(long)]
+    pub provider_sig: Option<String>,
 }
 
 #[derive(Args)]
@@ -127,7 +130,11 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
 
         TabAction::Close(args) => {
             let tab = client
-                .tab_close(&args.tab_id, args.final_amount.as_deref())
+                .tab_close(
+                    &args.tab_id,
+                    args.final_amount.as_deref(),
+                    args.provider_sig.as_deref(),
+                )
                 .await?;
             if ctx.json {
                 output::print_json(&tab);
