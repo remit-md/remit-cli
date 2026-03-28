@@ -191,18 +191,30 @@ fn signer_from_raw_key(raw_key: &Zeroizing<[u8; 32]>) -> PrivateKeySigner {
 /// Resolve the password for keystore decryption.
 ///
 /// Priority:
-///   1. REMIT_KEY_PASSWORD env var
-///   2. --password-file contents
-///   3. Error (never interactive — stdin is used for payload)
+///   1. REMIT_SIGNER_KEY env var
+///   2. REMIT_KEY_PASSWORD env var (deprecated fallback)
+///   3. --password-file contents
+///   4. Error (never interactive — stdin is used for payload)
 fn resolve_password(password_file: &Option<String>) -> String {
-    // 1. Env var
-    if let Ok(pw) = std::env::var("REMIT_KEY_PASSWORD") {
+    // 1. New env var
+    if let Ok(pw) = std::env::var("REMIT_SIGNER_KEY") {
         if !pw.is_empty() {
             return pw;
         }
     }
 
-    // 2. Password file
+    // 2. Deprecated env var (backwards compat — remove in V28)
+    if let Ok(pw) = std::env::var("REMIT_KEY_PASSWORD") {
+        if !pw.is_empty() {
+            eprintln!(
+                "\u{26a0} REMIT_KEY_PASSWORD is deprecated and will be removed in a future release.\n  \
+                 Set REMIT_SIGNER_KEY instead."
+            );
+            return pw;
+        }
+    }
+
+    // 3. Password file
     if let Some(path) = password_file {
         match std::fs::read_to_string(path) {
             Ok(contents) => {
@@ -219,10 +231,10 @@ fn resolve_password(password_file: &Option<String>) -> String {
         }
     }
 
-    // 3. No password source
+    // 4. No password source
     emit_error(
         "no_password",
-        "No password source. Set REMIT_KEY_PASSWORD or use --password-file",
+        "No password source. Set REMIT_SIGNER_KEY or use --password-file",
     );
 }
 

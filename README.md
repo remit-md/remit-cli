@@ -47,7 +47,7 @@ The CLI signer uses an encrypted keystore at `~/.remit/keys/`. Private keys are 
 
 ```bash
 remit signer init                 # generates wallet + encrypted keystore
-export REMIT_KEY_PASSWORD=your-password
+export REMIT_SIGNER_KEY=your-password
 ```
 
 ### With OWS
@@ -74,11 +74,11 @@ The CLI supports three wallet modes. It checks them in priority order:
 
 | Priority | Mode | Env Var | Description |
 |----------|------|---------|-------------|
-| 1 | CLI signer | `REMIT_KEY_PASSWORD` | Encrypted keystore. SDKs invoke `remit sign` via subprocess. |
+| 1 | CLI signer | `REMIT_SIGNER_KEY` | Encrypted keystore. SDKs invoke `remit sign` via subprocess. |
 | 2 | OWS | `OWS_WALLET_ID` | Encrypted local vault with spending policies. Requires OWS binary. |
 | 3 | Raw key | `REMITMD_KEY` | Private key in environment. Simple but less secure. |
 
-If a keystore exists at `~/.remit/keys/default.enc` and `REMIT_KEY_PASSWORD` is set, the CLI signs in-process using the encrypted key. Otherwise it falls back to OWS, then raw key.
+If a keystore exists at `~/.remit/keys/default.enc` and `REMIT_SIGNER_KEY` is set, the CLI signs in-process using the encrypted key. Otherwise it falls back to OWS, then raw key.
 
 ## Quickstart
 
@@ -154,7 +154,7 @@ remit --testnet mint 100                              # Mint 100 testnet USDC
 | `--eip712` | Sign EIP-712 typed data (JSON on stdin) |
 | `--digest` | Sign raw 32-byte digest (hex on stdin) |
 | `--keystore <PATH>` | Keystore path (default: `~/.remit/keys/default.enc`) |
-| `--password-file <PATH>` | Read password from file instead of `REMIT_KEY_PASSWORD` |
+| `--password-file <PATH>` | Read password from file instead of `REMIT_SIGNER_KEY` |
 
 ## `tab` Flags
 
@@ -184,7 +184,7 @@ remit --testnet mint 100                              # Mint 100 testnet USDC
 
 ```bash
 remit signer init                     # one-time setup — generates encrypted keystore
-export REMIT_KEY_PASSWORD=your-password
+export REMIT_SIGNER_KEY=your-password
 ```
 
 Keys are AES-256-GCM encrypted at `~/.remit/keys/default.enc`. The CLI decrypts in-process when signing. SDKs invoke `remit sign` as a subprocess — no HTTP server, no ports, no network exposure.
