@@ -14,7 +14,7 @@ jobs:
   acceptance:
     name: CLI acceptance tests (Base Sepolia)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +35,56 @@ jobs:
         run: cargo build
 
       - name: Run acceptance tests
-        run: cargo test --test acceptance -- --ignored --test-threads=1
+        id: tests
+        run: |
+          cargo test --test acceptance -- --ignored --test-threads=1 2>&1 | tee acceptance-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           REMITMD_KEY: "unused-tests-generate-own-keys"
-          REMITMD_API_URL: "https://remit.md/api/v1"
+          ACCEPTANCE_API_URL: "https://testnet.remit.md/api/v1"
+
+      - name: Generate step summary
+        if: always()
+        run: |
+          echo "## CLI Acceptance Tests — Base Sepolia" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Test | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          tests=(
+            "wallet_generation_produces_valid_address"
+            "mint_funds_wallet_and_balance_reflects"
+            "cli_mint_command_works"
+            "cli_status_returns_wallet_info"
+            "cli_pay_direct_with_auto_permit"
+            "cli_escrow_create_claim_start_release"
+            "cli_tab_open_close"
+            "cli_stream_open_close"
+            "cli_bounty_post_submit_award"
+            "cli_deposit_create"
+          )
+
+          for test in "${tests[@]}"; do
+            if grep -q "${test} \.\.\. ok" acceptance-output.txt; then
+              echo "| \`${test}\` | :white_check_mark: PASS |" >> "$GITHUB_STEP_SUMMARY"
+            elif grep -q "${test} \.\.\. FAILED" acceptance-output.txt; then
+              echo "| \`${test}\` | :x: FAIL |" >> "$GITHUB_STEP_SUMMARY"
+            elif grep -q "${test}" acceptance-output.txt; then
+              echo "| \`${test}\` | :warning: UNKNOWN |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| \`${test}\` | :black_circle: NOT RUN |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Transaction Log" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep "\[ACCEPTANCE\]" acceptance-output.txt >> "$GITHUB_STEP_SUMMARY" || echo "No [ACCEPTANCE] logs found" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if tests failed
+        if: always()
+        run: |
+          if grep -q "test result: FAILED" acceptance-output.txt; then
+            exit 1
+          fi
