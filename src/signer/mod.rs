@@ -6,4 +6,5 @@
 #![allow(dead_code)]
 
 pub mod eip712;
+pub mod keyring;
 pub mod keystore;
