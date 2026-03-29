@@ -13,7 +13,7 @@ Command-line interface for [Remit](https://remit.md) — USDC payments for AI ag
 | **pip** | `pip install remit-cli` | All |
 | **Scoop** | `scoop bucket add remit https://github.com/remit-md/scoop-bucket && scoop install remit` | Windows |
 | **Cargo** | `cargo install remit-cli` | All |
-| **Install script** | `curl -fsSL https://remit.md/install.sh \| sh` | macOS, Linux |
+| **Install script** | `curl -fsSL https://raw.githubusercontent.com/remit-md/remit-cli/main/install.sh \| sh` | macOS, Linux |
 
 ### Prebuilt binary (Linux)
 
