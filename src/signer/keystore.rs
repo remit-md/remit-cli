@@ -86,6 +86,7 @@ impl Keystore {
     }
 
     /// Open a keystore at a custom directory (for testing).
+    #[allow(dead_code)]
     pub fn open_in(dir: PathBuf) -> Self {
         Self { dir }
     }
@@ -96,6 +97,7 @@ impl Keystore {
     }
 
     /// The directory this keystore reads/writes to.
+    #[allow(dead_code)]
     pub fn dir(&self) -> &PathBuf {
         &self.dir
     }
@@ -194,6 +196,7 @@ impl Keystore {
     }
 
     /// List all key names (from `.enc` files in the keys directory).
+    #[allow(dead_code)]
     pub fn list(&self) -> Result<Vec<String>> {
         if !self.dir.exists() {
             return Ok(vec![]);

@@ -1,5 +1,4 @@
 // Functions used by the client module and command handlers.
-#![allow(dead_code)]
 
 /// Authentication for the Remit API.
 ///
@@ -84,6 +83,30 @@ impl std::fmt::Debug for SigningBackend {
     }
 }
 
+/// Resolve the signer key password from env vars.
+///
+/// Priority:
+///   1. REMIT_SIGNER_KEY — preferred
+///   2. REMIT_KEY_PASSWORD — deprecated fallback (warns on use)
+///   3. None if neither is set or both are empty
+pub fn resolve_env_password() -> Option<String> {
+    if let Ok(pw) = std::env::var("REMIT_SIGNER_KEY") {
+        if !pw.is_empty() {
+            return Some(pw);
+        }
+    }
+    if let Ok(pw) = std::env::var("REMIT_KEY_PASSWORD") {
+        if !pw.is_empty() {
+            eprintln!(
+                "\u{26a0} REMIT_KEY_PASSWORD is deprecated and will be removed in a future release.\n  \
+                 Set REMIT_SIGNER_KEY instead."
+            );
+            return Some(pw);
+        }
+    }
+    None
+}
+
 /// Resolve the signing backend.
 ///
 /// Priority:
@@ -113,26 +136,7 @@ pub fn resolve_signer() -> Result<SigningBackend> {
     }
 
     // 3. Keystore + password (REMIT_SIGNER_KEY preferred, REMIT_KEY_PASSWORD deprecated fallback)
-    let password = if let Ok(pw) = env::var("REMIT_SIGNER_KEY") {
-        if pw.is_empty() {
-            None
-        } else {
-            Some(pw)
-        }
-    } else if let Ok(pw) = env::var("REMIT_KEY_PASSWORD") {
-        if pw.is_empty() {
-            None
-        } else {
-            eprintln!(
-                "\u{26a0} REMIT_KEY_PASSWORD is deprecated and will be removed in a future release.\n  \
-                 Set REMIT_SIGNER_KEY instead."
-            );
-            Some(pw)
-        }
-    } else {
-        None
-    };
-    if let Some(password) = password {
+    if let Some(password) = resolve_env_password() {
         if let Ok(ks) = crate::signer::keystore::Keystore::open() {
             if ks.exists("default") {
                 let key_file = ks
@@ -162,6 +166,7 @@ pub fn resolve_signer() -> Result<SigningBackend> {
 // ── Key loading (kept for backward compat with permit.rs) ────────────────────
 
 /// Load the private key from REMITMD_KEY env var (with or without 0x prefix).
+#[allow(dead_code)]
 pub fn load_private_key() -> Result<String> {
     env::var("REMITMD_KEY").map_err(|_| {
         anyhow!(

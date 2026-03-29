@@ -26,7 +26,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 anyhow = "1"
-thiserror = "1"
 alloy = { version = "1", features = ["signers", "signer-local"] }
 sha3 = "0.10"
 rand = { version = "0.8", features = ["getrandom"] }
@@ -51,7 +50,6 @@ tar = "0.4"
 zip = "2"
 
 [dev-dependencies]
-tokio-test = "0.4"
 tempfile = "3"
 
 [profile.release]

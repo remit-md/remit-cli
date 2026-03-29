@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 
@@ -17,7 +16,8 @@ pub struct WithdrawArgs {
 }
 
 pub async fn run(args: WithdrawArgs, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet).await;
+    super::require_init()?;
+    let mut client = ctx.client()?;
     let resp = client
         .link_withdraw(args.amount.as_deref(), args.to.as_deref())
         .await?;

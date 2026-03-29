@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 use crate::permit;
@@ -74,7 +73,8 @@ pub struct TabListArgs {
 }
 
 pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet).await;
+    super::require_init()?;
+    let mut client = ctx.client()?;
 
     match action {
         TabAction::Open(args) => {
@@ -85,7 +85,7 @@ pub async fn run(action: TabAction, ctx: Context) -> Result<()> {
                 .map_err(|_| anyhow::anyhow!("system clock error: time before UNIX epoch"))?
                 .as_secs();
             let expiry = now as i64 + args.expiry as i64;
-            let permit_sig = permit::auto_permit(&client, &args.limit, "tab").await?;
+            let permit_sig = permit::auto_permit(&mut client, &args.limit, "tab").await?;
             let tab = client
                 .tab_open(
                     &args.provider,

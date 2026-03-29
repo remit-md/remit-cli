@@ -77,6 +77,7 @@ impl MetaFile {
     }
 
     /// Delete the meta file from disk.
+    #[allow(dead_code)]
     pub fn delete(name: &str) -> Result<()> {
         let path = Self::path(name)?;
         if path.exists() {
@@ -182,6 +183,7 @@ pub fn load_key(_label: &str) -> Result<Zeroizing<[u8; 32]>> {
 }
 
 /// Delete a key from the OS keychain.
+#[allow(dead_code)]
 #[cfg(feature = "keychain")]
 pub fn delete_key(label: &str) -> Result<()> {
     let entry =
@@ -194,6 +196,7 @@ pub fn delete_key(label: &str) -> Result<()> {
     })
 }
 
+#[allow(dead_code)]
 #[cfg(not(feature = "keychain"))]
 pub fn delete_key(_label: &str) -> Result<()> {
     Err(anyhow!("OS keychain not available (static build)."))

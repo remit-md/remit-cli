@@ -196,25 +196,12 @@ fn signer_from_raw_key(raw_key: &Zeroizing<[u8; 32]>) -> PrivateKeySigner {
 ///   3. --password-file contents
 ///   4. Error (never interactive — stdin is used for payload)
 fn resolve_password(password_file: &Option<String>) -> String {
-    // 1. New env var
-    if let Ok(pw) = std::env::var("REMIT_SIGNER_KEY") {
-        if !pw.is_empty() {
-            return pw;
-        }
+    // 1. Env var (REMIT_SIGNER_KEY or deprecated REMIT_KEY_PASSWORD)
+    if let Some(pw) = crate::auth::resolve_env_password() {
+        return pw;
     }
 
-    // 2. Deprecated env var (backwards compat — remove in V28)
-    if let Ok(pw) = std::env::var("REMIT_KEY_PASSWORD") {
-        if !pw.is_empty() {
-            eprintln!(
-                "\u{26a0} REMIT_KEY_PASSWORD is deprecated and will be removed in a future release.\n  \
-                 Set REMIT_SIGNER_KEY instead."
-            );
-            return pw;
-        }
-    }
-
-    // 3. Password file
+    // 2. Password file
     if let Some(path) = password_file {
         match std::fs::read_to_string(path) {
             Ok(contents) => {

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 
@@ -22,7 +21,8 @@ pub struct FundArgs {
 }
 
 pub async fn run(args: FundArgs, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet).await;
+    super::require_init()?;
+    let mut client = ctx.client()?;
     let messages: Vec<&str> = args.message.iter().map(|s| s.as_str()).collect();
     let resp = client
         .link_fund(args.amount.as_deref(), args.name.as_deref(), &messages)

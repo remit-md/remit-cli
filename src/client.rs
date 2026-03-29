@@ -1,5 +1,4 @@
-// Client and types used by command handlers (tasks 0.4+).
-#![allow(dead_code)]
+// Client and types used by command handlers.
 
 /// Authenticated HTTP client for the Remit API.
 ///
@@ -23,59 +22,63 @@ pub struct RemitClient {
     base: String,
     chain: ChainConfig,
     sign_path_prefix: String,
+    /// Whether the router address has been fetched from /contracts yet.
+    router_fetched: bool,
 }
 
 impl RemitClient {
-    pub async fn new(testnet: bool) -> Self {
+    pub fn new(testnet: bool, cfg: &crate::config::Config) -> Result<Self> {
         let http = Client::builder()
             .user_agent(concat!("remit-cli/", env!("CARGO_PKG_VERSION")))
             .build()
-            .expect("failed to build HTTP client");
-
-        // Load user config — propagate parse errors (default only when file absent).
-        let cfg = crate::config::load()
-            .expect("failed to load config.toml — fix or delete ~/.remit/config.toml");
-
-        // Determine network: CLI testnet flag already resolved in main.
-        let is_testnet = testnet;
+            .context("failed to build HTTP client")?;
 
         // Determine API base: env var wins, then config, then network default.
         let base = std::env::var("REMITMD_API_URL").unwrap_or_else(|_| {
             cfg.api_base
                 .clone()
-                .unwrap_or_else(|| (if is_testnet { TESTNET_API } else { MAINNET_API }).to_string())
+                .unwrap_or_else(|| (if testnet { TESTNET_API } else { MAINNET_API }).to_string())
         });
 
-        let mut chain = ChainConfig::for_network(is_testnet);
-
-        // Try to fetch current router from /contracts (falls back to hardcoded with warning)
-        if std::env::var("REMITMD_ROUTER_ADDRESS").is_err() {
-            let contracts_url = format!("{}/contracts", base);
-            match http.get(&contracts_url).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    if let Ok(data) = resp.json::<ContractsResponse>().await {
-                        if !data.router.is_empty() {
-                            chain.router = data.router;
-                        }
-                    }
-                }
-                _ => {
-                    eprintln!(
-                        "warning: could not fetch /contracts — using hardcoded router address"
-                    );
-                }
-            }
-        }
+        let chain = ChainConfig::for_network(testnet);
 
         let sign_path_prefix = reqwest::Url::parse(&base)
             .map(|u| u.path().trim_end_matches('/').to_string())
             .unwrap_or_default();
 
-        Self {
+        Ok(Self {
             http,
             base,
             chain,
             sign_path_prefix,
+            router_fetched: false,
+        })
+    }
+
+    /// Lazily fetch the router address from /contracts on first authenticated request.
+    /// Falls back to the hardcoded address with a warning if the fetch fails.
+    async fn ensure_router(&mut self) {
+        if self.router_fetched {
+            return;
+        }
+        self.router_fetched = true;
+
+        if std::env::var("REMITMD_ROUTER_ADDRESS").is_ok() {
+            return;
+        }
+
+        let contracts_url = format!("{}/contracts", self.base);
+        match self.http.get(&contracts_url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(data) = resp.json::<ContractsResponse>().await {
+                    if !data.router.is_empty() {
+                        self.chain.router = data.router;
+                    }
+                }
+            }
+            _ => {
+                eprintln!("warning: could not fetch /contracts — using hardcoded router address");
+            }
         }
     }
 
@@ -85,11 +88,12 @@ impl RemitClient {
 
     /// Execute an authenticated request, mapping HTTP errors to friendly messages.
     async fn request<T: DeserializeOwned>(
-        &self,
+        &mut self,
         method: Method,
         path: &str,
         body: Option<serde_json::Value>,
     ) -> Result<T> {
+        self.ensure_router().await;
         let path_only = path.split('?').next().unwrap_or(path);
         let sign_path = format!("{}{}", self.sign_path_prefix, path_only);
         let auth = build_auth_headers(
@@ -134,15 +138,20 @@ impl RemitClient {
         }
     }
 
-    async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+    async fn get<T: DeserializeOwned>(&mut self, path: &str) -> Result<T> {
         self.request(Method::GET, path, None).await
     }
 
-    async fn post<T: DeserializeOwned>(&self, path: &str, body: serde_json::Value) -> Result<T> {
+    async fn post<T: DeserializeOwned>(
+        &mut self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<T> {
         self.request(Method::POST, path, Some(body)).await
     }
 
-    async fn delete_req(&self, path: &str) -> Result<()> {
+    async fn delete_req(&mut self, path: &str) -> Result<()> {
+        self.ensure_router().await;
         let path_only = path.split('?').next().unwrap_or(path);
         let sign_path = format!("{}{}", self.sign_path_prefix, path_only);
         let auth = build_auth_headers(
@@ -183,7 +192,8 @@ impl RemitClient {
     // ── Public: contracts (unauthenticated) ────────────────────────────────────
 
     /// Fetch all deployed contract addresses. Unauthenticated — no key needed.
-    pub async fn get_contracts(&self) -> Result<ContractsResponse> {
+    #[allow(dead_code)]
+    pub async fn get_contracts(&mut self) -> Result<ContractsResponse> {
         let resp = self
             .http
             .get(self.url("/contracts"))
@@ -204,7 +214,7 @@ impl RemitClient {
     // ── Permits: /permits/prepare ────────────────────────────────────────────
 
     pub async fn permit_prepare<T: DeserializeOwned>(
-        &self,
+        &mut self,
         flow: &str,
         amount: &str,
         owner: &str,
@@ -218,20 +228,21 @@ impl RemitClient {
 
     // ── Public: status ────────────────────────────────────────────────────────
 
-    pub async fn status(&self, wallet: &str) -> Result<WalletStatus> {
+    pub async fn status(&mut self, wallet: &str) -> Result<WalletStatus> {
         self.get(&format!("/status/{wallet}")).await
     }
 
     // ── Public: health ────────────────────────────────────────────────────────
 
-    pub async fn health(&self) -> Result<HealthResponse> {
+    #[allow(dead_code)]
+    pub async fn health(&mut self) -> Result<HealthResponse> {
         self.get("/health").await
     }
 
     // ── Webhooks ──────────────────────────────────────────────────────────────
 
     pub async fn webhook_create(
-        &self,
+        &mut self,
         url: &str,
         events: &[String],
         chains: &[String],
@@ -247,18 +258,18 @@ impl RemitClient {
         .await
     }
 
-    pub async fn webhooks_list(&self) -> Result<Vec<Webhook>> {
+    pub async fn webhooks_list(&mut self) -> Result<Vec<Webhook>> {
         self.get("/webhooks").await
     }
 
-    pub async fn webhook_delete(&self, id: &str) -> Result<()> {
+    pub async fn webhook_delete(&mut self, id: &str) -> Result<()> {
         self.delete_req(&format!("/webhooks/{id}")).await
     }
 
     // ── Payment: direct ───────────────────────────────────────────────────────
 
     pub async fn pay_direct(
-        &self,
+        &mut self,
         to: &str,
         amount: &str,
         memo: Option<&str>,
@@ -290,7 +301,7 @@ impl RemitClient {
     // ── Tabs ─────────────────────────────────────────────────────────────────
 
     pub async fn tab_open(
-        &self,
+        &mut self,
         provider: &str,
         limit: &str,
         per_unit: &str,
@@ -314,7 +325,7 @@ impl RemitClient {
     }
 
     pub async fn tab_charge(
-        &self,
+        &mut self,
         tab_id: &str,
         amount: &str,
         cumulative: &str,
@@ -333,7 +344,7 @@ impl RemitClient {
     }
 
     pub async fn tab_close(
-        &self,
+        &mut self,
         tab_id: &str,
         final_amount: Option<&str>,
         provider_sig: Option<&str>,
@@ -347,18 +358,18 @@ impl RemitClient {
         self.post(&format!("/tabs/{tab_id}/close"), body).await
     }
 
-    pub async fn tab_get(&self, tab_id: &str) -> Result<Tab> {
+    pub async fn tab_get(&mut self, tab_id: &str) -> Result<Tab> {
         self.get(&format!("/tabs/{tab_id}")).await
     }
 
-    pub async fn tabs_list(&self, limit: u32) -> Result<PagedResponse<Tab>> {
+    pub async fn tabs_list(&mut self, limit: u32) -> Result<PagedResponse<Tab>> {
         self.get(&format!("/tabs?limit={limit}")).await
     }
 
     // ── Streams ───────────────────────────────────────────────────────────────
 
     pub async fn stream_open(
-        &self,
+        &mut self,
         payee: &str,
         rate_per_second: &str,
         max_total: &str,
@@ -379,7 +390,7 @@ impl RemitClient {
         self.post("/streams", body).await
     }
 
-    pub async fn stream_close(&self, stream_id: &str) -> Result<Stream> {
+    pub async fn stream_close(&mut self, stream_id: &str) -> Result<Stream> {
         self.post(
             &format!("/streams/{stream_id}/close"),
             serde_json::json!({}),
@@ -387,14 +398,14 @@ impl RemitClient {
         .await
     }
 
-    pub async fn streams_list(&self, limit: u32) -> Result<PagedResponse<Stream>> {
+    pub async fn streams_list(&mut self, limit: u32) -> Result<PagedResponse<Stream>> {
         self.get(&format!("/streams?limit={limit}")).await
     }
 
     // ── Escrows ───────────────────────────────────────────────────────────────
 
     pub async fn escrow_create(
-        &self,
+        &mut self,
         payee: &str,
         amount: &str,
         timeout_secs: Option<i64>,
@@ -415,7 +426,7 @@ impl RemitClient {
         self.post("/escrows", body).await
     }
 
-    pub async fn escrow_release(&self, escrow_id: &str) -> Result<Escrow> {
+    pub async fn escrow_release(&mut self, escrow_id: &str) -> Result<Escrow> {
         self.post(
             &format!("/escrows/{escrow_id}/release"),
             serde_json::json!({}),
@@ -423,7 +434,7 @@ impl RemitClient {
         .await
     }
 
-    pub async fn escrow_cancel(&self, escrow_id: &str) -> Result<Escrow> {
+    pub async fn escrow_cancel(&mut self, escrow_id: &str) -> Result<Escrow> {
         self.post(
             &format!("/escrows/{escrow_id}/cancel"),
             serde_json::json!({}),
@@ -431,7 +442,7 @@ impl RemitClient {
         .await
     }
 
-    pub async fn escrow_claim_start(&self, escrow_id: &str) -> Result<Escrow> {
+    pub async fn escrow_claim_start(&mut self, escrow_id: &str) -> Result<Escrow> {
         self.post(
             &format!("/escrows/{escrow_id}/claim-start"),
             serde_json::json!({}),
@@ -439,14 +450,14 @@ impl RemitClient {
         .await
     }
 
-    pub async fn escrows_list(&self, limit: u32) -> Result<PagedResponse<Escrow>> {
+    pub async fn escrows_list(&mut self, limit: u32) -> Result<PagedResponse<Escrow>> {
         self.get(&format!("/escrows?limit={limit}")).await
     }
 
     // ── Bounties ──────────────────────────────────────────────────────────────
 
     pub async fn bounty_post(
-        &self,
+        &mut self,
         amount: &str,
         description: &str,
         expiry_secs: i64,
@@ -467,7 +478,11 @@ impl RemitClient {
         self.post("/bounties", body).await
     }
 
-    pub async fn bounty_submit(&self, bounty_id: &str, proof: &str) -> Result<BountySubmission> {
+    pub async fn bounty_submit(
+        &mut self,
+        bounty_id: &str,
+        proof: &str,
+    ) -> Result<BountySubmission> {
         self.post(
             &format!("/bounties/{bounty_id}/submit"),
             serde_json::json!({
@@ -477,7 +492,7 @@ impl RemitClient {
         .await
     }
 
-    pub async fn bounty_award(&self, bounty_id: &str, submission_id: i64) -> Result<Bounty> {
+    pub async fn bounty_award(&mut self, bounty_id: &str, submission_id: i64) -> Result<Bounty> {
         self.post(
             &format!("/bounties/{bounty_id}/award"),
             serde_json::json!({ "submission_id": submission_id }),
@@ -485,14 +500,14 @@ impl RemitClient {
         .await
     }
 
-    pub async fn bounties_list(&self, limit: u32) -> Result<PagedResponse<Bounty>> {
+    pub async fn bounties_list(&mut self, limit: u32) -> Result<PagedResponse<Bounty>> {
         self.get(&format!("/bounties?limit={limit}")).await
     }
 
     // ── Deposits ──────────────────────────────────────────────────────────────
 
     pub async fn deposit_create(
-        &self,
+        &mut self,
         provider: &str,
         amount: &str,
         expiry_secs: i64,
@@ -516,7 +531,7 @@ impl RemitClient {
     // ── Links ─────────────────────────────────────────────────────────────────
 
     pub async fn link_fund(
-        &self,
+        &mut self,
         amount: Option<&str>,
         name: Option<&str>,
         messages: &[&str],
@@ -540,7 +555,7 @@ impl RemitClient {
     }
 
     pub async fn link_withdraw(
-        &self,
+        &mut self,
         amount: Option<&str>,
         to: Option<&str>,
     ) -> Result<CreateLinkResponse> {
@@ -558,7 +573,7 @@ impl RemitClient {
 
     /// Mint testnet USDC via `POST /mint`. This endpoint is unauthenticated,
     /// so we skip EIP-712 auth headers.
-    pub async fn mint(&self, wallet: &str, amount: f64) -> Result<MintResponse> {
+    pub async fn mint(&mut self, wallet: &str, amount: f64) -> Result<MintResponse> {
         let body = serde_json::json!({ "wallet": wallet, "amount": amount });
         let req = self
             .http
@@ -588,16 +603,6 @@ impl RemitClient {
                 .unwrap_or(body_text);
             Err(anyhow!("{status}: {msg}"))
         }
-    }
-
-    // ── Faucet (DEPRECATED — use mint) ──────────────────────────────────────
-
-    pub async fn faucet(&self, wallet: &str, amount: Option<&str>) -> Result<FaucetResponse> {
-        let mut body = serde_json::json!({ "wallet": wallet });
-        if let Some(amt) = amount {
-            body["amount"] = serde_json::Value::String(amt.to_string());
-        }
-        self.post("/faucet", body).await
     }
 }
 
@@ -641,6 +646,7 @@ pub struct WalletStatus {
     pub permit_nonce: Option<u64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HealthResponse {
     pub status: String,
@@ -757,14 +763,6 @@ pub struct CreateLinkResponse {
 pub struct MintResponse {
     pub tx_hash: String,
     pub balance: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct FaucetResponse {
-    pub tx_hash: Option<String>,
-    pub amount: serde_json::Value,
-    pub recipient: Option<String>,
-    pub message: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

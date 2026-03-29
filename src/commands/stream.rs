@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 use crate::permit;
@@ -39,14 +38,15 @@ pub struct StreamListArgs {
 }
 
 pub async fn run(action: StreamAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet).await;
+    super::require_init()?;
+    let mut client = ctx.client()?;
 
     match action {
         StreamAction::Open(args) => {
             super::validate_positive_amount(&args.rate, "rate")?;
             super::validate_positive_amount(&args.max, "max")?;
             super::validate_address(&args.payee, "payee")?;
-            let permit_sig = permit::auto_permit(&client, &args.max, "stream").await?;
+            let permit_sig = permit::auto_permit(&mut client, &args.max, "stream").await?;
             let stream = client
                 .stream_open(&args.payee, &args.rate, &args.max, Some(&permit_sig))
                 .await?;

@@ -1,15 +1,14 @@
-// Output helpers used by command handlers as they are implemented (tasks 0.4+).
-#![allow(dead_code)]
+// Output helpers used by command handlers.
 
 use comfy_table::{Cell, Table};
 use serde::Serialize;
 
 /// Print a value as JSON or as a human-readable table.
 pub fn print_json<T: Serialize>(value: &T) {
-    println!(
-        "{}",
-        serde_json::to_string_pretty(value).expect("failed to serialize value as JSON")
-    );
+    match serde_json::to_string_pretty(value) {
+        Ok(json) => println!("{json}"),
+        Err(e) => eprintln!("error: failed to serialize value as JSON: {e}"),
+    }
 }
 
 /// Print a simple key-value table.

@@ -1,11 +1,9 @@
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// User config stored in ~/.remit/config.toml
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub network: Option<String>, // "mainnet" | "testnet"
@@ -18,7 +16,7 @@ pub struct Config {
 }
 
 /// Tracks how the CLI was installed, for `remit update`.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub method: Option<String>, // "brew" | "winget" | "scoop" | "cargo" | "curl" | "manual"
     pub installed_at: Option<String>,

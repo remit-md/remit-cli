@@ -174,7 +174,7 @@ async fn pay(args: A2APayArgs, ctx: Context) -> Result<()> {
     let http = reqwest::Client::builder()
         .user_agent(concat!("remit-cli/", env!("CARGO_PKG_VERSION")))
         .build()
-        .unwrap();
+        .map_err(|e| anyhow!("failed to build HTTP client: {e}"))?;
 
     let mut req = http
         .post(&a2a_url)

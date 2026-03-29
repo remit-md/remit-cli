@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 
@@ -37,7 +36,7 @@ pub struct WebhookDeleteArgs {
 }
 
 pub async fn run(action: WebhookAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet).await;
+    let mut client = ctx.client()?;
 
     match action {
         WebhookAction::Create(args) => {
