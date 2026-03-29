@@ -194,6 +194,15 @@ remit --testnet mint 100                              # Mint 100 testnet USDC
 | `--name <name>` | Agent or person name shown on the fund page |
 | `--message <msg>` | Message shown on the fund page (repeatable) |
 
+## `update` Flags
+
+| Flag | Description |
+|------|-------------|
+| `--check` | Check for updates without installing. Exit 0 if up-to-date, exit 1 if outdated. |
+| `-y`, `--yes` | Skip interactive confirmation prompt |
+
+If the CLI detects it was installed via a package manager (Homebrew, Scoop, cargo, npm, snap), it prints the appropriate update command instead of self-updating.
+
 ## Auth
 
 ### CLI signer (default, recommended)
