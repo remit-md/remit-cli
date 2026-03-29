@@ -192,3 +192,60 @@ jobs:
               "version": "${{ github.ref_name }}",
               "sha_windows_x86": "${{ steps.checksums.outputs.remit_x86_64_pc_windows_msvc_zip }}"
             }
+
+  publish-npm:
+    name: Publish to npm
+    needs: [release]
+    if: "!contains(github.ref_name, '-')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Patch version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd npm
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '${VERSION}';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Publish
+        run: cd npm && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [release]
+    if: "!contains(github.ref_name, '-')"
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Patch version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd pypi
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" pyproject.toml
+          sed -i "s/^__version__ = .*/__version__ = \"${VERSION}\"/" remit_cli/__init__.py
+
+      - name: Build sdist
+        run: cd pypi && pip install build && python -m build --sdist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi/dist/
+          skip-existing: true
