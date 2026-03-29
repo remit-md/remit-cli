@@ -204,11 +204,7 @@ fn is_cargo_installed() -> bool {
     // CARGO_HOME env var, or default ~/.cargo
     let cargo_home = std::env::var("CARGO_HOME")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .unwrap_or_default()
-                .join(".cargo")
-        });
+        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".cargo"));
     let manifest = cargo_home.join(".crates.toml");
     let Ok(contents) = std::fs::read_to_string(&manifest) else {
         return false;
