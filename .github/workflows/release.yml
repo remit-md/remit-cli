@@ -163,6 +163,7 @@ jobs:
 
       - name: Update Homebrew tap
         if: "!contains(github.ref_name, '-')"
+        continue-on-error: true
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.TAP_GITHUB_TOKEN }}
@@ -182,6 +183,7 @@ jobs:
 
       - name: Update Scoop bucket
         if: "!contains(github.ref_name, '-')"
+        continue-on-error: true
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.TAP_GITHUB_TOKEN }}
