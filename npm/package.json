@@ -1,0 +1,26 @@
+{
+  "name": "@remit-md/cli",
+  "version": "0.5.4",
+  "description": "CLI for the Remit payment protocol — USDC payments for AI agents",
+  "license": "MIT",
+  "repository": "https://github.com/remit-md/remit-cli",
+  "homepage": "https://remit.md",
+  "bin": {
+    "remit": "bin/remit"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
