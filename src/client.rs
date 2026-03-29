@@ -201,6 +201,21 @@ impl RemitClient {
         }
     }
 
+    // ── Permits: /permits/prepare ────────────────────────────────────────────
+
+    pub async fn permit_prepare<T: DeserializeOwned>(
+        &self,
+        flow: &str,
+        amount: &str,
+        owner: &str,
+    ) -> Result<T> {
+        self.post(
+            "/permits/prepare",
+            serde_json::json!({ "flow": flow, "amount": amount, "owner": owner }),
+        )
+        .await
+    }
+
     // ── Public: status ────────────────────────────────────────────────────────
 
     pub async fn status(&self, wallet: &str) -> Result<WalletStatus> {
@@ -385,43 +400,13 @@ impl RemitClient {
         timeout_secs: Option<i64>,
         permit: Option<&crate::permit::PermitSignature>,
     ) -> Result<Escrow> {
-        use rand::Rng;
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let chain = chain_name(self.chain.chain_id)?;
-        let nonce = hex::encode(rand::thread_rng().gen::<[u8; 16]>());
-        let invoice_id = format!("cli-{}", hex::encode(rand::thread_rng().gen::<[u8; 8]>()));
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| anyhow::anyhow!("system clock error: time before UNIX epoch"))?
-            .as_secs();
-        let expiry = timeout_secs
-            .map(|s| now as i64 + s)
-            .unwrap_or(now as i64 + 86400);
-
-        let from_agent = crate::auth::wallet_address().await?;
-
-        // Create invoice first
-        self.post::<serde_json::Value>(
-            "/invoices",
-            serde_json::json!({
-                "id": invoice_id,
-                "chain": chain,
-                "from_agent": from_agent,
-                "to_agent": payee,
-                "amount": amount,
-                "type": "escrow",
-                "task": "",
-                "nonce": nonce,
-                "signature": "0x",
-                "escrow_timeout": expiry,
-            }),
-        )
-        .await
-        .context("create invoice")?;
-
-        // Fund escrow (with permit if provided)
-        let mut body = serde_json::json!({ "invoice_id": invoice_id });
+        let timeout = timeout_secs.unwrap_or(86400);
+        let mut body = serde_json::json!({
+            "to": payee,
+            "amount": amount,
+            "task": "",
+            "timeout": timeout,
+        });
         if let Some(p) = permit {
             body["permit"] = serde_json::json!({
                 "value": p.value, "deadline": p.deadline, "v": p.v, "r": p.r, "s": p.s,
