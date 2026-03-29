@@ -184,13 +184,37 @@ pub(crate) fn detect_package_manager() -> Option<String> {
         return Some("scoop".into());
     }
     if path.contains("/.cargo/bin/") || path.contains("\\.cargo\\bin\\") {
-        return Some("cargo".into());
+        // Only claim "cargo" if actually installed via `cargo install` —
+        // check the cargo registry manifest for our crate name.
+        if is_cargo_installed() {
+            return Some("cargo".into());
+        }
     }
     if path.contains("/node_modules/") || path.contains("\\node_modules\\") {
         return Some("npm".into());
     }
 
     None
+}
+
+/// Check if remit-cli is registered in cargo's install manifest (.crates.toml).
+/// A binary sitting in `.cargo/bin/` doesn't mean it was `cargo install`ed —
+/// it could have been manually placed there.
+fn is_cargo_installed() -> bool {
+    // CARGO_HOME env var, or default ~/.cargo
+    let cargo_home = std::env::var("CARGO_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .unwrap_or_default()
+                .join(".cargo")
+        });
+    let manifest = cargo_home.join(".crates.toml");
+    let Ok(contents) = std::fs::read_to_string(&manifest) else {
+        return false;
+    };
+    // Cargo writes entries like: [v1."remit-cli 0.5.4 (registry+...)"]
+    contents.contains("remit-cli ")
 }
 
 fn manager_update_command(manager: &str) -> &'static str {
@@ -338,10 +362,17 @@ mod tests {
     #[test]
     fn test_detect_package_manager_none_by_default() {
         // In a dev/CI env without snap/brew/scoop, should return None or "cargo"
-        // (cargo if running from .cargo/bin)
+        // (cargo only if remit-cli is in .crates.toml)
         let mgr = detect_package_manager();
         // We just verify it doesn't panic
         let _ = mgr;
+    }
+
+    #[test]
+    fn test_is_cargo_installed_does_not_panic() {
+        // Should return false when remit-cli isn't in .crates.toml
+        // (which is the case in dev — we run via `cargo run`, not `cargo install`)
+        let _ = is_cargo_installed();
     }
 
     #[test]
