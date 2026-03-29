@@ -1,6 +1,15 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
 PackageIdentifier: remit-md.remit
-PackageVersion: 0.5.0
-DefaultLocale: en-US
-ManifestType: version
+PackageVersion: 0.5.6
+PackageName: Remit CLI
+Publisher: remit-md
+License: MIT
+ShortDescription: USDC payment protocol CLI for AI agents on Base
+PackageUrl: https://remit.md
+InstallerType: zip
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/remit-md/remit-cli/releases/download/v0.5.6/remit-x86_64-pc-windows-msvc.zip
+    InstallerSha256: PLACEHOLDER
+PackageLocale: en-US
+ManifestType: singleton
 ManifestVersion: 1.6.0
