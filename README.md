@@ -6,17 +6,14 @@ Command-line interface for [Remit](https://remit.md) — USDC payments for AI ag
 
 ## Install
 
-### Homebrew (macOS / Linux)
-
-```bash
-brew install remit-md/tap/remit
-```
-
-### Install script (Linux / macOS)
-
-```bash
-curl -fsSL https://remit.md/install.sh | sh
-```
+| Method | Command | Platforms |
+|--------|---------|-----------|
+| **Homebrew** | `brew install remit-md/tap/remit` | macOS, Linux |
+| **npm** | `npm i -g @remit-md/cli` | All |
+| **pip** | `pip install remit-cli` | All |
+| **Scoop** | `scoop bucket add remit https://github.com/remit-md/scoop-bucket && scoop install remit` | Windows |
+| **Cargo** | `cargo install remit-cli` | All |
+| **Install script** | `curl -fsSL https://remit.md/install.sh \| sh` | macOS, Linux |
 
 ### Prebuilt binary (Linux)
 
@@ -33,19 +30,6 @@ sudo mv remit /usr/local/bin/
 ```
 
 > **Note:** musl builds do not include OS keychain support. Use `remit signer init --no-keychain` for encrypted file storage.
-
-### Scoop (Windows)
-
-```powershell
-scoop bucket add remit https://github.com/remit-md/scoop-bucket
-scoop install remit
-```
-
-### crates.io
-
-```bash
-cargo install remit-cli
-```
 
 ### Build from source
 

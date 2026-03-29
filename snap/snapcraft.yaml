@@ -1,0 +1,44 @@
+name: remit
+base: core22
+version: '0.5.6'
+summary: USDC payment protocol CLI for AI agents
+description: |
+  Send USDC payments, open tabs, run streams, and more — from the command line.
+  Remit is a payment protocol for AI agents on Base (Ethereum L2).
+
+  Features:
+  - Direct payments, escrows, tabs, streams, bounties, deposits
+  - EIP-712 signed authentication
+  - OS keychain or encrypted file-based key storage
+  - Fund and withdraw via one-time links
+
+  https://remit.md
+license: MIT
+grade: stable
+confinement: classic
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+parts:
+  remit:
+    plugin: nil
+    override-build: |
+      # Download prebuilt binary from GitHub Releases
+      VERSION="${SNAPCRAFT_PROJECT_VERSION}"
+      case "$(uname -m)" in
+        x86_64)  TARGET="x86_64-unknown-linux-musl" ;;
+        aarch64) TARGET="aarch64-unknown-linux-musl" ;;
+        *)       echo "Unsupported arch: $(uname -m)"; exit 1 ;;
+      esac
+      curl -fsSL "https://github.com/remit-md/remit-cli/releases/download/v${VERSION}/remit-${TARGET}.tar.gz" \
+        -o remit.tar.gz
+      tar xzf remit.tar.gz
+      install -Dm755 remit "${SNAPCRAFT_PART_INSTALL}/bin/remit"
+    build-packages:
+      - curl
+
+apps:
+  remit:
+    command: bin/remit
