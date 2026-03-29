@@ -5,7 +5,6 @@ pub mod bounty;
 pub mod config_cmd;
 pub mod deposit;
 pub mod escrow;
-pub mod faucet;
 pub mod fund;
 pub mod init;
 pub mod mint;
@@ -21,12 +20,30 @@ pub mod webhook;
 pub mod withdraw;
 
 /// Per-invocation context passed to every command handler.
-// Fields used by command handlers as they are implemented (tasks 0.4+).
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct Context {
     pub json: bool,
     pub testnet: bool,
+    pub config: crate::config::Config,
+}
+
+/// Create a `RemitClient` from the context, returning `Result`.
+impl Context {
+    pub fn client(&self) -> anyhow::Result<crate::client::RemitClient> {
+        crate::client::RemitClient::new(self.testnet, &self.config)
+    }
+}
+
+/// Check that `remit init` has been run (config.toml exists).
+/// Payment commands must call this before proceeding.
+pub fn require_init() -> anyhow::Result<()> {
+    let path = crate::config::config_path()?;
+    if !path.exists() {
+        return Err(anyhow::anyhow!(
+            "Remit is not initialized. Run `remit init` first."
+        ));
+    }
+    Ok(())
 }
 
 /// Validate that a USDC amount string is a positive number.

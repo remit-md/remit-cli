@@ -79,8 +79,6 @@ enum Commands {
     Withdraw(commands::withdraw::WithdrawArgs),
     /// Mint testnet USDC (max 2500 per request, 1/hr rate limit)
     Mint(commands::mint::MintArgs),
-    /// Request testnet USDC from faucet (DEPRECATED — use `mint`)
-    Faucet(commands::faucet::FaucetArgs),
     /// Generate a new keypair and configure auth
     Init(commands::init::InitArgs),
     /// Set or get config values
@@ -132,24 +130,36 @@ async fn main() -> Result<()> {
             .as_deref()
             .map(|f| f == "json")
             .unwrap_or(false);
-    // Network: explicit flags > config > default to testnet (safe direction)
-    let testnet = if cli.mainnet {
+
+    // Network: REMIT_NETWORK env > explicit flags > config > default to mainnet
+    let testnet = if let Ok(env_net) = std::env::var("REMIT_NETWORK") {
+        match env_net.as_str() {
+            "testnet" => true,
+            "mainnet" => false,
+            other => {
+                return Err(anyhow::anyhow!(
+                    "REMIT_NETWORK must be 'mainnet' or 'testnet', got '{other}'"
+                ));
+            }
+        }
+    } else if cli.mainnet {
         false
     } else if cli.testnet {
         true
     } else {
         let config_network = cfg.network.as_deref().unwrap_or("");
         match config_network {
-            "mainnet" => false,
             "testnet" => true,
-            _ => {
-                eprintln!("warning: no network specified, defaulting to testnet. Use --mainnet for mainnet.");
-                true
-            }
+            "mainnet" => false,
+            _ => false, // default to mainnet
         }
     };
 
-    let ctx = commands::Context { json, testnet };
+    let ctx = commands::Context {
+        json,
+        testnet,
+        config: cfg,
+    };
 
     match cli.command {
         Commands::Pay(args) => commands::pay::run(args, ctx).await,
@@ -163,7 +173,6 @@ async fn main() -> Result<()> {
         Commands::Fund(args) => commands::fund::run(args, ctx).await,
         Commands::Withdraw(args) => commands::withdraw::run(args, ctx).await,
         Commands::Mint(args) => commands::mint::run(args, ctx).await,
-        Commands::Faucet(args) => commands::faucet::run(args, ctx).await,
         Commands::Init(args) => commands::init::run(args, ctx).await,
         Commands::Config { action } => commands::config_cmd::run(action, ctx).await,
         Commands::A2A { action } => commands::a2a::run(action, ctx).await,

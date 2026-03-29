@@ -35,7 +35,7 @@ pub async fn run(args: UpdateArgs, _ctx: super::Context) -> Result<()> {
     if let Some(mgr) = detect_package_manager() {
         eprintln!("remit was installed via {mgr}. Update with:");
         eprintln!("  {}", manager_update_command(&mgr));
-        std::process::exit(0);
+        return Ok(());
     }
 
     eprintln!("Checking for updates...");
@@ -55,13 +55,13 @@ pub async fn run(args: UpdateArgs, _ctx: super::Context) -> Result<()> {
 
     if !is_newer(latest, current) {
         eprintln!("Already up to date (v{current})");
-        std::process::exit(0);
+        return Ok(());
     }
 
     eprintln!("Update available: v{current} → v{latest}");
 
     if args.check {
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("Update available: v{current} → v{latest}"));
     }
 
     // Determine the correct asset for this platform

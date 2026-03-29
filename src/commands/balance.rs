@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::Args;
 
 use crate::auth::wallet_address;
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 
@@ -20,7 +19,7 @@ pub async fn run(args: BalanceArgs, ctx: Context) -> Result<()> {
         None => wallet_address().await?,
     };
 
-    let client = RemitClient::new(ctx.testnet).await;
+    let mut client = ctx.client()?;
     let resp = client.status(&addr).await?;
 
     if ctx.json {

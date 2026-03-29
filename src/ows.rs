@@ -2,7 +2,6 @@
 //!
 //! Maps Remit chain names to CAIP-2 identifiers and provides
 //! convenience wrappers around ows-lib for the CLI.
-#![allow(dead_code, unused_imports)]
 
 use anyhow::{anyhow, Context, Result};
 
@@ -18,6 +17,7 @@ pub fn chain_to_caip2(chain: &str) -> Result<String> {
 }
 
 /// Map a Remit chain name to a numeric chain ID.
+#[allow(dead_code)]
 pub fn chain_to_id(chain: &str) -> Result<u64> {
     match chain {
         "base" => Ok(8453),
@@ -43,6 +43,7 @@ pub fn default_wallet_name() -> String {
 }
 
 /// Remit contract addresses for Base Sepolia (for policy allowlists).
+#[allow(dead_code)]
 pub const TESTNET_CONTRACTS: &[&str] = &[
     "0x3120f396ff6a9afc5a9d92e28796082f1429e024", // Router
     "0x47de7cdd757e3765d36c083dab59b2c5a9d249f2", // Escrow
@@ -54,12 +55,14 @@ pub const TESTNET_CONTRACTS: &[&str] = &[
 ];
 
 /// Remit contract addresses for Base Mainnet.
+#[allow(dead_code)]
 pub const MAINNET_CONTRACTS: &[&str] = &[
     "0xAf2e211BC585D3Ab37e9BD546Fb25747a09254D2", // Router
     "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
 ];
 
 /// Get contracts for a given chain name.
+#[allow(dead_code)]
 pub fn contracts_for_chain(chain: &str) -> &'static [&'static str] {
     match chain {
         "base" => MAINNET_CONTRACTS,
@@ -170,6 +173,7 @@ pub fn create_api_key(wallet_id: &str, policy_id: &str) -> Result<(String, ows_c
 }
 
 /// List all OWS policies.
+#[allow(dead_code)]
 pub fn list_policies() -> Result<Vec<ows_core::Policy>> {
     ows_lib::policy_store::list_policies(None).map_err(|e| anyhow!("failed to list policies: {e}"))
 }
@@ -208,6 +212,7 @@ pub fn vault_path_display() -> String {
 }
 
 /// Check if OWS CLI is installed by running `ows --version`.
+#[allow(dead_code)]
 pub fn ows_cli_version() -> Option<String> {
     std::process::Command::new("ows")
         .arg("--version")

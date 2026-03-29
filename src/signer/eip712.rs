@@ -72,11 +72,13 @@ pub fn hash_typed_data(request: &TypedDataRequest) -> Result<[u8; 32]> {
 }
 
 /// Extract the chain ID from a typed-data request (for policy evaluation).
+#[allow(dead_code)]
 pub fn extract_chain_id(domain: &TypedDataDomain) -> Option<u64> {
     domain.chain_id
 }
 
 /// Extract contract/spender/to address from the message value (for policy).
+#[allow(dead_code)]
 pub fn extract_contract(value: &serde_json::Value) -> Option<String> {
     // Try common field names used in EIP-712 messages
     for field in &["spender", "to", "recipient", "verifyingContract"] {
@@ -91,6 +93,7 @@ pub fn extract_contract(value: &serde_json::Value) -> Option<String> {
 
 /// Extract USDC amount from the message value (for policy).
 /// Assumes 6 decimals (USDC standard).
+#[allow(dead_code)]
 pub fn extract_amount_usdc(value: &serde_json::Value) -> Option<f64> {
     for field in &["value", "amount"] {
         if let Some(raw) = value.get(field) {

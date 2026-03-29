@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 use crate::permit;
@@ -22,14 +21,15 @@ pub struct PayArgs {
 }
 
 pub async fn run(args: PayArgs, ctx: Context) -> Result<()> {
+    super::require_init()?;
     super::validate_positive_amount(&args.amount, "amount")?;
     super::validate_address(&args.to, "to")?;
-    let client = RemitClient::new(ctx.testnet).await;
+    let mut client = ctx.client()?;
 
     let permit_sig = if args.no_permit {
         None
     } else {
-        Some(permit::auto_permit(&client, &args.amount, "router").await?)
+        Some(permit::auto_permit(&mut client, &args.amount, "router").await?)
     };
 
     let resp = client

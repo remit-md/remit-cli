@@ -2,7 +2,6 @@ use anyhow::{anyhow, Result};
 use clap::Args;
 
 use crate::auth::wallet_address;
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 
@@ -40,7 +39,7 @@ pub async fn run(args: MintArgs, ctx: Context) -> Result<()> {
         return Err(anyhow!("Amount must not exceed 2500 USDC per request"));
     }
 
-    let client = RemitClient::new(ctx.testnet).await;
+    let mut client = ctx.client()?;
     let resp = client.mint(&addr, amount).await?;
 
     if ctx.json {

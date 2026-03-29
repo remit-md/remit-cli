@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 use crate::permit;
@@ -53,7 +52,8 @@ pub struct BountyListArgs {
 }
 
 pub async fn run(action: BountyAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet).await;
+    super::require_init()?;
+    let mut client = ctx.client()?;
 
     match action {
         BountyAction::Post(args) => {
@@ -63,7 +63,7 @@ pub async fn run(action: BountyAction, ctx: Context) -> Result<()> {
                 .map_err(|_| anyhow::anyhow!("system clock error: time before UNIX epoch"))?
                 .as_secs();
             let deadline = now as i64 + args.expiry as i64;
-            let permit_sig = permit::auto_permit(&client, &args.amount, "bounty").await?;
+            let permit_sig = permit::auto_permit(&mut client, &args.amount, "bounty").await?;
             let bounty = client
                 .bounty_post(&args.amount, &args.description, deadline, Some(&permit_sig))
                 .await?;

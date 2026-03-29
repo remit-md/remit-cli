@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::client::RemitClient;
 use crate::commands::Context;
 use crate::output;
 use crate::permit;
@@ -45,13 +44,14 @@ pub struct EscrowListArgs {
 }
 
 pub async fn run(action: EscrowAction, ctx: Context) -> Result<()> {
-    let client = RemitClient::new(ctx.testnet).await;
+    super::require_init()?;
+    let mut client = ctx.client()?;
 
     match action {
         EscrowAction::Create(args) => {
             super::validate_positive_amount(&args.amount, "amount")?;
             super::validate_address(&args.payee, "payee")?;
-            let permit_sig = permit::auto_permit(&client, &args.amount, "escrow").await?;
+            let permit_sig = permit::auto_permit(&mut client, &args.amount, "escrow").await?;
             let escrow = client
                 .escrow_create(&args.payee, &args.amount, args.timeout, Some(&permit_sig))
                 .await?;

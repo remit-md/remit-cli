@@ -57,7 +57,7 @@ fn contract_to_flow(contract: &str) -> Result<&'static str> {
 /// `spender_field` is the contract name (e.g., "router", "escrow").
 /// `amount_usdc` is the USDC amount as a string (e.g., "10.50").
 pub async fn auto_permit(
-    client: &RemitClient,
+    client: &mut RemitClient,
     amount_usdc: &str,
     spender_field: &str,
 ) -> Result<PermitSignature> {
