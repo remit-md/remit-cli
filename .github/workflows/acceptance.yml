@@ -34,6 +34,11 @@ jobs:
       - name: Build binary
         run: cargo build
 
+      - name: Create config (remit init gate)
+        run: |
+          mkdir -p ~/.remit
+          echo 'network = "testnet"' > ~/.remit/config.toml
+
       - name: Run acceptance tests
         id: tests
         run: |
