@@ -10,6 +10,16 @@ use crate::permit;
 pub enum DepositAction {
     /// Create a new deposit (refundable collateral)
     Create(DepositCreateArgs),
+    /// Return a deposit (release collateral back to depositor)
+    Return(DepositIdArgs),
+    /// Forfeit a deposit (provider claims the collateral)
+    Forfeit(DepositIdArgs),
+}
+
+#[derive(Args)]
+pub struct DepositIdArgs {
+    /// Deposit ID
+    pub deposit_id: String,
 }
 
 #[derive(Args)]
@@ -57,6 +67,52 @@ pub async fn run(action: DepositAction, ctx: Context) -> Result<()> {
                             .unwrap_or_else(|| "—".to_string()),
                     ),
                     ("Expiry", deposit.expiry.as_deref().unwrap_or("—")),
+                    ("Tx Hash", deposit.tx_hash.as_deref().unwrap_or("—")),
+                ]);
+            }
+        }
+
+        DepositAction::Return(args) => {
+            let deposit = client.return_deposit(&args.deposit_id).await?;
+            if ctx.json {
+                output::print_json(&deposit);
+            } else {
+                output::success(&format!("Deposit {} returned", args.deposit_id));
+                output::print_kv(&[
+                    ("ID", deposit.id.as_str()),
+                    ("Status", deposit.status.as_str()),
+                    ("Provider", deposit.provider.as_deref().unwrap_or("—")),
+                    (
+                        "Amount",
+                        &deposit
+                            .amount
+                            .as_ref()
+                            .map(|v| format!("{v} USDC"))
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
+                    ("Tx Hash", deposit.tx_hash.as_deref().unwrap_or("—")),
+                ]);
+            }
+        }
+
+        DepositAction::Forfeit(args) => {
+            let deposit = client.forfeit_deposit(&args.deposit_id).await?;
+            if ctx.json {
+                output::print_json(&deposit);
+            } else {
+                output::success(&format!("Deposit {} forfeited", args.deposit_id));
+                output::print_kv(&[
+                    ("ID", deposit.id.as_str()),
+                    ("Status", deposit.status.as_str()),
+                    ("Provider", deposit.provider.as_deref().unwrap_or("—")),
+                    (
+                        "Amount",
+                        &deposit
+                            .amount
+                            .as_ref()
+                            .map(|v| format!("{v} USDC"))
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
                     ("Tx Hash", deposit.tx_hash.as_deref().unwrap_or("—")),
                 ]);
             }
