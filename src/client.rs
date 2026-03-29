@@ -593,6 +593,20 @@ impl RemitClient {
         .await
     }
 
+    // ── Wallet settings ───────────────────────────────────────────────────────
+
+    pub async fn update_wallet_settings(
+        &mut self,
+        display_name: Option<String>,
+    ) -> Result<WalletSettings> {
+        let mut body = serde_json::json!({});
+        if let Some(name) = display_name {
+            body["display_name"] = serde_json::Value::String(name);
+        }
+        self.request(Method::PATCH, "/wallet/settings", Some(body))
+            .await
+    }
+
     // ── Links ─────────────────────────────────────────────────────────────────
 
     pub async fn link_fund(
@@ -839,6 +853,11 @@ pub struct Webhook {
     pub active: bool,
     pub secret: Option<String>,
     pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WalletSettings {
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
