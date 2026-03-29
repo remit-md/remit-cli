@@ -13,6 +13,8 @@ pub enum WalletAction {
     Fund(WalletFundArgs),
     /// Set spending policy on a wallet
     SetPolicy(SetPolicyArgs),
+    /// Update wallet display settings
+    Settings(WalletSettingsArgs),
 }
 
 #[derive(clap::Args)]
@@ -41,11 +43,19 @@ pub struct SetPolicyArgs {
     pub daily_limit: Option<f64>,
 }
 
+#[derive(clap::Args)]
+pub struct WalletSettingsArgs {
+    /// Set the wallet display name
+    #[arg(long)]
+    pub display_name: Option<String>,
+}
+
 pub async fn run(action: WalletAction, ctx: Context) -> Result<()> {
     match action {
         WalletAction::List => run_list(ctx).await,
         WalletAction::Fund(args) => run_fund(args, ctx).await,
         WalletAction::SetPolicy(args) => run_set_policy(args, ctx).await,
+        WalletAction::Settings(args) => run_settings(args, ctx).await,
     }
 }
 
@@ -207,6 +217,31 @@ async fn run_set_policy(args: SetPolicyArgs, ctx: Context) -> Result<()> {
             output::info("Spending limits use the @remitmd/ows-policy executable.");
             output::info("Install it: npm install -g @remitmd/ows-policy");
         }
+    }
+
+    Ok(())
+}
+
+async fn run_settings(args: WalletSettingsArgs, ctx: Context) -> Result<()> {
+    super::require_init()?;
+    let mut client = ctx.client()?;
+
+    let settings = client
+        .update_wallet_settings(args.display_name.clone())
+        .await?;
+
+    if ctx.json {
+        output::print_json(&serde_json::json!({
+            "display_name": settings.display_name,
+        }));
+    } else {
+        output::success("Wallet settings updated");
+        output::print_kv(&[(
+            "Display Name",
+            &settings
+                .display_name
+                .unwrap_or_else(|| "(not set)".to_string()),
+        )]);
     }
 
     Ok(())
