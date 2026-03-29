@@ -11,8 +11,16 @@ pub enum StreamAction {
     Open(StreamOpenArgs),
     /// Close a payment stream
     Close(StreamCloseArgs),
+    /// Withdraw accrued funds from a stream
+    Withdraw(StreamIdArgs),
     /// List active streams
     List(StreamListArgs),
+}
+
+#[derive(Args)]
+pub struct StreamIdArgs {
+    /// Stream ID
+    pub stream_id: String,
 }
 
 #[derive(Args)]
@@ -64,6 +72,16 @@ pub async fn run(action: StreamAction, ctx: Context) -> Result<()> {
                 output::print_json(&stream);
             } else {
                 output::success(&format!("Stream {} closed", args.stream_id));
+                print_stream(&stream);
+            }
+        }
+
+        StreamAction::Withdraw(args) => {
+            let stream = client.withdraw_stream(&args.stream_id).await?;
+            if ctx.json {
+                output::print_json(&stream);
+            } else {
+                output::success(&format!("Stream {} withdrawn", args.stream_id));
                 print_stream(&stream);
             }
         }

@@ -10,6 +10,8 @@ pub enum WebhookAction {
     Create(WebhookCreateArgs),
     /// List all registered webhooks
     List(WebhookListArgs),
+    /// Update a webhook registration
+    Update(WebhookUpdateArgs),
     /// Delete a webhook registration
     Delete(WebhookDeleteArgs),
 }
@@ -28,6 +30,21 @@ pub struct WebhookCreateArgs {
 
 #[derive(Args)]
 pub struct WebhookListArgs {}
+
+#[derive(Args)]
+pub struct WebhookUpdateArgs {
+    /// Webhook ID to update
+    pub webhook_id: String,
+    /// New delivery URL
+    #[arg(long)]
+    pub url: Option<String>,
+    /// New event types (repeat for multiple)
+    #[arg(long = "event")]
+    pub events: Option<Vec<String>>,
+    /// Set active/inactive
+    #[arg(long)]
+    pub active: Option<bool>,
+}
 
 #[derive(Args)]
 pub struct WebhookDeleteArgs {
@@ -92,6 +109,30 @@ pub async fn run(action: WebhookAction, ctx: Context) -> Result<()> {
                         })
                         .collect(),
                 );
+            }
+        }
+        WebhookAction::Update(args) => {
+            let wh = client
+                .update_webhook(&args.webhook_id, args.url, args.events, args.active)
+                .await?;
+            if ctx.json {
+                output::print_json(&wh);
+            } else {
+                output::success(&format!("Webhook updated: {}", wh.id));
+                output::print_kv(&[
+                    ("ID", wh.id.as_str()),
+                    ("URL", wh.url.as_str()),
+                    ("Events", &wh.events.join(", ")),
+                    (
+                        "Chains",
+                        &if wh.chains.is_empty() {
+                            "all".to_string()
+                        } else {
+                            wh.chains.join(", ")
+                        },
+                    ),
+                    ("Active", if wh.active { "yes" } else { "no" }),
+                ]);
             }
         }
         WebhookAction::Delete(args) => {

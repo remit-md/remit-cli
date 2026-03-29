@@ -14,8 +14,16 @@ pub enum BountyAction {
     Submit(BountySubmitArgs),
     /// Award bounty to a submission
     Award(BountyAwardArgs),
+    /// Reclaim an expired bounty
+    Reclaim(BountyIdArgs),
     /// List bounties
     List(BountyListArgs),
+}
+
+#[derive(Args)]
+pub struct BountyIdArgs {
+    /// Bounty ID
+    pub bounty_id: String,
 }
 
 #[derive(Args)]
@@ -103,6 +111,16 @@ pub async fn run(action: BountyAction, ctx: Context) -> Result<()> {
                     "Bounty {} awarded to submission {}",
                     args.bounty_id, args.submission_id
                 ));
+                print_bounty(&bounty);
+            }
+        }
+
+        BountyAction::Reclaim(args) => {
+            let bounty = client.reclaim_bounty(&args.bounty_id).await?;
+            if ctx.json {
+                output::print_json(&bounty);
+            } else {
+                output::success(&format!("Bounty {} reclaimed", args.bounty_id));
                 print_bounty(&bounty);
             }
         }

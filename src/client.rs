@@ -528,6 +528,71 @@ impl RemitClient {
         self.post("/deposits", body).await
     }
 
+    // ── Deposits (actions) ─────────────────────────────────────────────────────
+
+    pub async fn return_deposit(&mut self, deposit_id: &str) -> Result<Deposit> {
+        self.post(
+            &format!("/deposits/{deposit_id}/return"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn forfeit_deposit(&mut self, deposit_id: &str) -> Result<Deposit> {
+        self.post(
+            &format!("/deposits/{deposit_id}/forfeit"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    // ── Streams (actions) ─────────────────────────────────────────────────────
+
+    pub async fn withdraw_stream(&mut self, stream_id: &str) -> Result<Stream> {
+        self.post(
+            &format!("/streams/{stream_id}/withdraw"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    // ── Bounties (actions) ────────────────────────────────────────────────────
+
+    pub async fn reclaim_bounty(&mut self, bounty_id: &str) -> Result<Bounty> {
+        self.post(
+            &format!("/bounties/{bounty_id}/reclaim"),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    // ── Webhooks (update) ─────────────────────────────────────────────────────
+
+    pub async fn update_webhook(
+        &mut self,
+        webhook_id: &str,
+        url: Option<String>,
+        events: Option<Vec<String>>,
+        active: Option<bool>,
+    ) -> Result<Webhook> {
+        let mut body = serde_json::json!({});
+        if let Some(u) = url {
+            body["url"] = serde_json::Value::String(u);
+        }
+        if let Some(e) = events {
+            body["events"] = serde_json::json!(e);
+        }
+        if let Some(a) = active {
+            body["active"] = serde_json::Value::Bool(a);
+        }
+        self.request(
+            Method::PATCH,
+            &format!("/webhooks/{webhook_id}"),
+            Some(body),
+        )
+        .await
+    }
+
     // ── Links ─────────────────────────────────────────────────────────────────
 
     pub async fn link_fund(
