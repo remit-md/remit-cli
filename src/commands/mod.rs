@@ -34,16 +34,35 @@ impl Context {
     }
 }
 
-/// Check that `remit init` has been run (config.toml exists).
+/// Check that a signing wallet is configured.
 /// Payment commands must call this before proceeding.
+///
+/// A wallet is considered configured if ANY of the following exist:
+///   1. REMITMD_KEY env var is set (raw private key)
+///   2. ~/.remit/keys/default.meta exists (OS keychain wallet)
+///   3. ~/.remit/keys/default.enc exists (encrypted keystore)
 pub fn require_init() -> anyhow::Result<()> {
-    let path = crate::config::config_path()?;
-    if !path.exists() {
-        return Err(anyhow::anyhow!(
-            "Remit is not initialized. Run `remit init` first."
-        ));
+    // 1. Raw private key in env
+    if std::env::var("REMITMD_KEY").is_ok() {
+        return Ok(());
     }
-    Ok(())
+
+    // 2. OS keychain (.meta file)
+    if let Ok(true) = crate::signer::keyring::MetaFile::exists("default") {
+        return Ok(());
+    }
+
+    // 3. Encrypted keystore (.enc file)
+    if let Ok(ks) = crate::signer::keystore::Keystore::open() {
+        if ks.exists("default") {
+            return Ok(());
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "No wallet configured. Run `remit signer init` to create one,\n\
+         or set REMITMD_KEY in your environment."
+    ))
 }
 
 /// Validate that a USDC amount string is a positive number.
