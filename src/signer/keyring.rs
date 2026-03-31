@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 /// Service name used in all keychain entries.
+#[cfg(feature = "keychain")]
 const KEYCHAIN_SERVICE: &str = "remit";
 
 // ── MetaFile ──────────────────────────────────────────────────────────────
