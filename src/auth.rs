@@ -441,12 +441,8 @@ mod tests {
 
     #[test]
     fn test_missing_key_error() {
-        // Uses ENV_MUTEX defined below — tests that mutate env vars must be serialized.
         let _lock = ENV_MUTEX.lock().unwrap();
-        let original = std::env::var("REMITMD_KEY").ok();
-        unsafe {
-            std::env::remove_var("REMITMD_KEY");
-        }
+        let (saved, _tmp) = clear_signer_env();
 
         let result = load_private_key();
         assert!(result.is_err());
@@ -455,11 +451,7 @@ mod tests {
             .to_string()
             .contains("REMITMD_KEY not set"));
 
-        if let Some(val) = original {
-            unsafe {
-                std::env::set_var("REMITMD_KEY", val);
-            }
-        }
+        restore_signer_env(saved);
     }
 
     // ── resolve_signer() tests ───────────────────────────────────────────────
@@ -470,21 +462,52 @@ mod tests {
     use std::sync::Mutex;
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-    /// Helper: clear signer-related env vars, returning originals for restore.
+    /// Saved env state for signer-related vars.
+    struct SavedSignerEnv {
+        remitmd_key: Option<String>,
+        keys_dir: Option<String>,
+        signer_key: Option<String>,
+        key_password: Option<String>,
+    }
+
+    /// Helper: clear signer-related env vars and point REMIT_KEYS_DIR to an empty
+    /// temp dir so OS keychain `.meta` files don't interfere. Returns originals.
     /// Caller MUST hold ENV_MUTEX.
-    fn clear_signer_env() -> Option<String> {
-        let key = std::env::var("REMITMD_KEY").ok();
+    fn clear_signer_env() -> (SavedSignerEnv, tempfile::TempDir) {
+        let saved = SavedSignerEnv {
+            remitmd_key: std::env::var("REMITMD_KEY").ok(),
+            keys_dir: std::env::var("REMIT_KEYS_DIR").ok(),
+            signer_key: std::env::var("REMIT_SIGNER_KEY").ok(),
+            key_password: std::env::var("REMIT_KEY_PASSWORD").ok(),
+        };
+        let tmp = tempfile::tempdir().expect("cannot create temp dir");
         unsafe {
             std::env::remove_var("REMITMD_KEY");
+            std::env::remove_var("REMIT_SIGNER_KEY");
+            std::env::remove_var("REMIT_KEY_PASSWORD");
+            std::env::set_var("REMIT_KEYS_DIR", tmp.path());
         }
-        key
+        (saved, tmp)
     }
 
     /// Restore env vars. Caller MUST hold ENV_MUTEX.
-    fn restore_signer_env(saved: Option<String>) {
+    fn restore_signer_env(saved: SavedSignerEnv) {
         unsafe {
-            if let Some(v) = saved {
-                std::env::set_var("REMITMD_KEY", v);
+            match saved.remitmd_key {
+                Some(v) => std::env::set_var("REMITMD_KEY", v),
+                None => std::env::remove_var("REMITMD_KEY"),
+            }
+            match saved.keys_dir {
+                Some(v) => std::env::set_var("REMIT_KEYS_DIR", v),
+                None => std::env::remove_var("REMIT_KEYS_DIR"),
+            }
+            match saved.signer_key {
+                Some(v) => std::env::set_var("REMIT_SIGNER_KEY", v),
+                None => std::env::remove_var("REMIT_SIGNER_KEY"),
+            }
+            match saved.key_password {
+                Some(v) => std::env::set_var("REMIT_KEY_PASSWORD", v),
+                None => std::env::remove_var("REMIT_KEY_PASSWORD"),
             }
         }
     }
@@ -492,7 +515,7 @@ mod tests {
     #[test]
     fn test_resolve_signer_local_variant() {
         let _lock = ENV_MUTEX.lock().unwrap();
-        let saved = clear_signer_env();
+        let (saved, _tmp) = clear_signer_env();
         unsafe {
             std::env::set_var("REMITMD_KEY", TEST_PRIVATE_KEY);
         }
@@ -508,16 +531,13 @@ mod tests {
             }
         }
 
-        unsafe {
-            std::env::remove_var("REMITMD_KEY");
-        }
         restore_signer_env(saved);
     }
 
     #[test]
     fn test_resolve_signer_neither_set_errors() {
         let _lock = ENV_MUTEX.lock().unwrap();
-        let saved = clear_signer_env();
+        let (saved, _tmp) = clear_signer_env();
 
         let result = resolve_signer();
         assert!(result.is_err());

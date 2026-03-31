@@ -42,12 +42,18 @@ pub struct MetaFile {
 
 impl MetaFile {
     /// Path to the meta file for a given wallet name.
+    ///
+    /// Uses `REMIT_KEYS_DIR` env override if set (for testing), otherwise `~/.remit/keys/`.
     pub fn path(name: &str) -> Result<PathBuf> {
-        let home = dirs::home_dir().context("cannot locate home directory")?;
-        Ok(home
-            .join(".remit")
-            .join("keys")
-            .join(format!("{name}.meta")))
+        let base = if let Ok(dir) = std::env::var("REMIT_KEYS_DIR") {
+            PathBuf::from(dir)
+        } else {
+            dirs::home_dir()
+                .context("cannot locate home directory")?
+                .join(".remit")
+                .join("keys")
+        };
+        Ok(base.join(format!("{name}.meta")))
     }
 
     /// Write meta file to disk (creates parent dirs if needed).

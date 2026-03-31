@@ -78,11 +78,18 @@ pub struct Keystore {
 
 impl Keystore {
     /// Open the keystore at the default location (`~/.remit/keys/`).
+    ///
+    /// Uses `REMIT_KEYS_DIR` env override if set (for testing), otherwise `~/.remit/keys/`.
     pub fn open() -> Result<Self> {
-        let home = dirs::home_dir().context("cannot locate home directory")?;
-        Ok(Self {
-            dir: home.join(".remit").join("keys"),
-        })
+        let dir = if let Ok(d) = std::env::var("REMIT_KEYS_DIR") {
+            PathBuf::from(d)
+        } else {
+            dirs::home_dir()
+                .context("cannot locate home directory")?
+                .join(".remit")
+                .join("keys")
+        };
+        Ok(Self { dir })
     }
 
     /// Open a keystore at a custom directory (for testing).
